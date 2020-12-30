@@ -1,0 +1,251 @@
+---
+title: "Dataset Test"
+author: "Adam Chapnik"
+date: "11/11/2020"
+output: html_document
+---
+
+```{r}
+## Keep rtweet updated ##
+## install devtools package if it's not already
+if (!requireNamespace("devtools", quietly = TRUE)) {
+  install.packages("devtools")
+}
+
+## install dev version of rtweet from github
+devtools::install_github("mkearney/rtweet")
+
+## load rtweet package
+library(rtweet)
+
+tw_token <-
+rtweet::create_token(
+consumer_key = "[consumer_key]",
+consumer_secret = "[consumer_secret]",
+access_token = "[access_token]",
+access_secret = "[access_secret]"
+)
+```
+
+
+```{r}
+library(tidytext)
+library(ggpubr)
+library(tidyverse)
+library(dplyr)
+library(glue)
+library(googleLanguageR)
+library(rvest)
+library(tesseract)
+library(magick)
+usethis::edit_r_environ()
+gl_auth("Chinese Twitter Propaganda-127f1d3d869c.json")
+```
+
+First I create a list of current Chinese foreign ambassadors for later comparison.
+
+```{r}
+# list of Chinese ambassadors # 
+main_url <- "https://en.wikipedia.org/wiki/Ambassadors_of_China"
+main_page <- read_html(main_url)
+amb1_html <- html_nodes(main_page, "td:nth-child(3)")
+m_amb1 <- html_text(amb1_html)
+amb2_html <- html_nodes(main_page, "td:nth-child(2)")
+m_amb2 <- html_text(amb2_html)
+loc_html <- html_nodes(main_page, "td:nth-child(1) > a")
+m_loc <- html_text(loc_html)
+m_amb1 <- m_amb1[-c(196:207)]
+m_amb2 <- m_amb2[-c(1:195)][-c(12:31)]
+m_amb <- c(m_amb1, m_amb2)
+m_loc1 <- m_loc[-c(200:208)]
+m_loc2 <- m_loc[-c(1:205)]
+m_loc <- c(m_loc1,"United Nations Office in Geneva", "United Nations Office in Vienna", "United Nations Office in Bangkok", m_loc2, "Ambassador for Disarmament Affairs of China")
+
+mat <- cbind("Host" = m_loc, "Ambassador" = m_amb)
+mat <- mat[-c(19,100,101,129,179),]
+write.csv(mat, "Chinese_Ambassadors.csv")
+```
+
+Hamilton 2.0 has a relatively recent list of proven Chinese Twitter accounts. First I scrape that list.
+
+```{r}
+# list of Chinese Twitter accounts #
+main_url <- "https://securingdemocracy.gmfus.org/hamilton-monitored-accounts-on-twitter/#china"
+main_page <- read_html(main_url)
+list1_html <- html_nodes(main_page, ".fusion-builder-column-2 td:nth-child(1)")
+m_list1 <- html_text(list1_html)
+m_list1 <- m_list1[-1]
+list2_html <- html_nodes(main_page, ".fusion-builder-column-2 td:nth-child(2)")
+m_list2 <- html_text(list2_html)
+m_list2 <- m_list2[-1]
+list3_html <- html_nodes(main_page, ".fusion-builder-column-2 td:nth-child(3)")
+m_list3 <- html_text(list3_html)
+m_list3 <- m_list3[-1]
+x <- as.data.frame(cbind(m_list1, m_list2, m_list3))
+```
+
+Then I check if the accounts are active, based on having at least one tweet that can be scraped by the Twitter API. If not, I remove the account from the list.
+
+```{r}
+# are accounts active? #
+a <- as.vector(x[,1])
+validate <- function(x){
+  test <- get_timeline(a[x], n=1, token = tw_token)
+  test1 <- nrow(test)
+  if(test1 > 0){
+    result <- TRUE
+  }
+  else{
+    result <- FALSE
+  }
+  return(result)
+}
+accounts <- c(1:nrow(x))
+active <- unlist(lapply(accounts, validate))
+updated_accounts <- cbind(x, active)
+```
+
+```{r}
+## active accounts?
+active <- updated_accounts %>% filter(active == "TRUE")
+write.csv(active, "Chinese_Twitter.csv")
+```
+
+Update the list of proven Chinese Twitter accounts, and reupload it. Here I have done it manually, although I have provided the code for doing it automatically.
+
+```{r}
+# update list manually
+active2 <- read_csv("~/Desktop/Chinese_Twitter_2.csv")
+write.csv(active2, "Chinese_Twitter_2.csv")
+active2 <- active2[,-5] ## manually completed list of authentic CCP accounts
+```
+
+
+```{r eval=FALSE, include=FALSE}
+## Retreive lists, apend to list so far, AUTOMATICALLY ##
+a <- lists_members("1236504353952980993", token = tw_token) # from "Yuan Yi Zhu"
+b <- lists_members("1195434296552632320", token = tw_token) # from "Jerker Hellström"
+c <- lists_members("1166098056594513920", token = tw_token) # from "News Asia 24"
+a <- a %>% select(screen_name, name)
+b <- b %>% select(screen_name, name)
+c <- c %>% select(screen_name, name)
+x <- rbind(a, b, c)
+m_list1 <- paste0("@", x$screen_name)
+x$screen_name <- NULL
+x <- cbind(m_list1, x)
+x <- unique(x) %>% rename(m_list2 = name)
+active <- active %>% select(m_list1, m_list2)
+active2 <- unique(rbind(active, x)) ## COMPLETE CCP ACCOUNT LIST ##
+```
+
+One last time, I check if the accounts are active based on having at least one scrapeable tweet. This time, the result is printed as a vector of the account user_ids.
+
+```{r}
+# get all active users (>= 1 tweet) #
+get_timeline_unlimited <- function(users, n){ # users = vector of users
+
+  if (length(users) ==0){
+    return(NULL)
+  }
+
+  rl <- rate_limit(query = "get_timeline")
+
+  if (length(users) <= rl$remaining){
+    print(glue("Getting data for {length(users)} users"))
+    tweets <- get_timeline(users, n, check = FALSE, token = tw_token)  
+  }else{
+
+    if (rl$remaining > 0){
+      users_first <- users[1:rl$remaining]
+      users_rest <- users[-(1:rl$remaining)]
+      print(glue("Getting data for {length(users_first)} users"))
+      tweets_first <- get_timeline(users_first, n, check = FALSE, token = tw_token)
+      rl <- rate_limit(query = "get_timeline")
+    }else{
+      tweets_first <- NULL
+      users_rest <- users
+    }
+    wait <- rl$reset + 0.1
+    print(glue("Waiting for {round(wait,2)} minutes"))
+    Sys.sleep(wait * 60)
+
+    tweets_rest <- get_timeline_unlimited(users_rest, n)  
+    tweets <- bind_rows(tweets_first, tweets_rest)
+  }
+  return(tweets)
+}
+a <- active2$m_list1
+checked <- get_timeline_unlimited(a, 1)
+active <- checked$user_id # vector of active user_ids
+```
+
+For this analysis, although I know there is probably a large number of coordinated Chinese "bot" accounts other than the accounts whose ownership has been proven "on the ground," I will not be searching for that complete network except by coincidence. Instead, I am interested in the interaction received by the tweets from the official Chinese accounts, which will include interactions from both bots and real accounts. 
+
+Therefore, instead of scraping a list of all followers and friends of the main accounts (which will include several million accounts and will take many days to process), I will scrape the complete timelines of the main accounts within the period of interest, filter that for relevent tweets, and then analyze interactions. There are some limitations of this method, but it is necessary for the sake of time at this stage of the research.
+
+2019-03-30 = 1112105748102819841
+
+March 31, 2019, thousands take to the streets in Hong Kong to protest against the proposed extradition bill.
+
+2020-11-25 = 1328067151459180554
+
+November 25, 2020, today.
+
+https://en.wikipedia.org/wiki/Timeline_of_the_2019%E2%80%9320_Hong_Kong_protests_(October_2020)
+
+This function makes sure that the call does not timeout. It searches for all tweets from a user between the two status_ids above (which is slightly wider than we are interested in) and excludes retweets (these will come in later in the main accounts are retweeting each other, although this may exclude unique retweets from unique third-party accounts). It then filters tweets between the two dates of interest (March 31, 2019 and Nov 25, 2020) that are either in Chinese or English, and from accounts that have at least five tweets in their history. n is specified as 200,000 since that is more than any of the active accounts have ever tweeted, in order that all tweets within the interval are scraped. The output is a single dataframe.
+
+
+```{r}
+# scrape (in chunks, as needed, bc of time limit)
+result1 <- get_timeline(active[1:137], n = 200000, parse = TRUE, 
+                       since_id = "1112105748102819841", max_id = "1328067151459180554", 
+                       type = "recent", include_rts = FALSE, retryonratelimit = TRUE, token = tw_token) %>% dplyr::filter(created_at > "2019-03-31 00:00:01 UTC" & created_at <= "2020-11-25 19:00:00 UTC") %>% dplyr::filter(statuses_count >= 5)  %>% dplyr::filter(lang == "en" | lang == "zh") 
+
+result1 <- result1 %>% dplyr::filter(screen_name != "ChineseEmbinUK")
+
+result1.5 <- get_timeline(active[98:137], n = 200000, parse = TRUE, 
+                       since_id = "1112105748102819841", max_id = "1328067151459180554", 
+                       type = "recent", include_rts = FALSE, retryonratelimit = TRUE, token = tw_token) %>% dplyr::filter(created_at > "2019-03-31 00:00:01 UTC" & created_at <= "2020-11-25 19:00:00 UTC") %>% dplyr::filter(statuses_count >= 5)  %>% dplyr::filter(lang == "en" | lang == "zh")
+
+result1.5 <- result1.5 %>% dplyr::filter(screen_name != "indurban1")
+
+result2 <- get_timeline(active[137:216], n = 200000, parse = TRUE, 
+                       since_id = "1112105748102819841", max_id = "1328067151459180554", 
+                       type = "recent", include_rts = FALSE, retryonratelimit = TRUE, token = tw_token) %>% dplyr::filter(created_at > "2019-03-31 00:00:01 UTC" & created_at <= "2020-11-25 19:00:00 UTC") %>% dplyr::filter(statuses_count >= 5)  %>% dplyr::filter(lang == "en" | lang == "zh") 
+
+result2 <- result2 %>% dplyr::filter(screen_name != "PDChinese")
+
+result3 <- get_timeline(active[216:255], n = 200000, parse = TRUE, 
+                       since_id = "1112105748102819841", max_id = "1328067151459180554", 
+                       type = "recent", include_rts = FALSE, retryonratelimit = TRUE, token = tw_token) %>% dplyr::filter(created_at > "2019-03-31 00:00:01 UTC" & created_at <= "2020-11-25 19:00:00 UTC") %>% dplyr::filter(statuses_count >= 5)  %>% dplyr::filter(lang == "en" | lang == "zh") 
+
+# Full tweet dataset
+result <- rbind(result1, result1.5, result2, result3)
+view(result)
+write_as_csv(result, "Chinese_tweets.csv")
+```
+
+Now that I have a full dataset of tweets from the main Chinese accounts during the period of interest, in English or Chinese, I can translate the Chinese tweets into English.
+
+```{r eval=FALSE, include=FALSE}
+# translate all Chinese to English
+chinese <- result %>% dplyr::filter(lang == "zh")
+text_en <- gl_translate(chinese$text, target = "en")$translatedText
+chinese_en <- cbind(chinese, text_en)
+english$text_en <- NA 
+```
+
+```{r}
+hashtags_en <- gl_translate(chinese_en$hashtags, target = "en")$translatedText 
+chinese_en <- cbind(chinese_en, hashtags_en) 
+write_as_csv(chinese_en, "Translated_tweets.csv") 
+english$hashtags_en <- NA 
+df <- rbind(english, chinese_en) 
+write_as_csv(df, "Tweets.csv")
+```
+
+```{r}
+active2
+```
+

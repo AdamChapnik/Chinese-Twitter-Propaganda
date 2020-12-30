@@ -1,0 +1,104 @@
+---
+title: "Coordination_Analysis"
+author: "Adam Chapnik"
+date: "12/17/2020"
+output: html_document
+---
+
+I will lastly analyze the coordination of the accounts that retweeted the core accounts. 
+
+
+```{r}
+library(rtweet)
+library(dplyr)
+library(tidyr)
+library(tidytext)
+library(ggplot2)
+library(textdata)
+library(stringr)
+
+retweets <- readr::read_csv("Retweets.csv")
+```
+
+```{r}
+## merging the complete list of official CCP screen_names with the ones in "retweets" to create "core" T/F variable
+# create list of core accounts
+active <- readr::read_csv("Chinese_Twitter.csv")
+a <- lists_members("1236504353952980993", token = tw_token) # from "Yuan Yi Zhu"
+b <- lists_members("1195434296552632320", token = tw_token) # from "Jerker Hellström"
+c <- lists_members("1166098056594513920", token = tw_token) # from "News Asia 24"
+a <- a %>% select(screen_name, name)
+b <- b %>% select(screen_name, name)
+c <- c %>% select(screen_name, name)
+x <- rbind(a, b, c)
+m_list1 <- paste0("@", x$screen_name)
+x$screen_name <- NULL
+x <- cbind(m_list1, x)
+x <- unique(x) %>% rename(m_list2 = name)
+active <- active %>% select(m_list1, m_list2)
+core <- unique(rbind(active, x)) ## COMPLETE CCP ACCOUNT LIST ##
+# merge to rtw df
+core <- core %>% rename(screen_name = m_list1)
+core <- core$screen_name
+core <- (gsub("@", "", core)) #removing "@"
+core <- as.data.frame(core)
+core <- core %>% rename(screen_name = core)
+core$core <- "core"
+retweets <- right_join(core, retweets)
+retweets <- replace(retweets, is.na(retweets), "non-core") # now we have a variable indicating wether a user is a core
+```
+
+
+```{r}
+# time of retweet
+time <- as.POSIXlt(retweets$retweet_created_at)
+time <- time$hour + (time$min)/60 + (time$sec)/3600
+retweets <- cbind(time, retweets)
+
+retweets %>% ggplot(aes(x = time, fill = core)) + geom_histogram(bins = 30) + facet_grid(~ core) + 
+  theme_bw() + labs(title = "Time of Retweets", y = "Number of retweets", x = "Time")
+```
+
+
+```{r}
+retweets %>% filter(core == "non-core") %>% ggplot(aes(x = account_created_at)) + geom_histogram(bins = 30) + theme_bw() +
+  labs(title = "Non-core account creation date", y = "Number of accounts", x = "Date")
+```
+
+
+```{r}
+x <- as.data.frame(str_count(retweets$screen_name, "[:digit:]"))
+colnames(x) <- "digits"
+x %>% ggplot(aes(x = digits)) + geom_histogram(bins = 30) + theme_bw() +
+  labs(title = "Number of Digits in Account Handle", y = "Number of accounts", x = "Number of Digits")
+```
+
+```{r}
+retweets %>% count(screen_name, sort = T) %>% top_n(10) %>% 
+  mutate(screen_name = reorder(screen_name, n)) %>% ggplot(aes(x = screen_name, y = n)) + geom_col() + xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Retweets", title = "Top 10 Retweeters by Number of Retweets since March 31, 2019")
+
+retweets %>% filter(retweet_created_at >= "2020-05-25 00:00:01 UTC") %>% count(screen_name, sort = T) %>% top_n(10) %>% 
+  mutate(screen_name = reorder(screen_name, n)) %>% ggplot(aes(x = screen_name, y = n)) + geom_col() + xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Retweets", title = "Top 10 Retweeters by Number of Retweets since May 25, 2020")
+
+retweets %>% filter(retweet_created_at <= "2020-05-25 00:00:01 UTC") %>% count(screen_name, sort = T) %>% top_n(10) %>% 
+  mutate(screen_name = reorder(screen_name, n)) %>% ggplot(aes(x = screen_name, y = n)) + geom_col() + xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Retweets", title = "Top 10 Retweeters by Number of Retweets between March 31, 2019 and May 25, 2020")
+```
+
+```{r}
+retweets %>% filter(core == "non-core") %>% count(screen_name, sort = T) %>% top_n(10) %>% 
+  mutate(screen_name = reorder(screen_name, n)) %>% ggplot(aes(x = screen_name, y = n)) + geom_col() + xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Retweets", title = "Top 10 Non-Core Retweeters by Number of Retweets since March 31, 2019")
+
+retweets %>% filter(core == "non-core") %>% filter(retweet_created_at >= "2020-05-25 00:00:01 UTC") %>% count(screen_name, sort = T) %>% top_n(10) %>% 
+  mutate(screen_name = reorder(screen_name, n)) %>% ggplot(aes(x = screen_name, y = n)) + geom_col() + xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Retweets", title = "Top 10 Non-Core Retweeters by Number of Retweets since May 25, 2020")
+
+retweets %>% filter(core == "non-core") %>% filter(retweet_created_at <= "2020-05-25 00:00:01 UTC") %>% count(screen_name, sort = T) %>% top_n(10) %>% 
+  mutate(screen_name = reorder(screen_name, n)) %>% ggplot(aes(x = screen_name, y = n)) + geom_col() + xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Retweets", title = "Top 10 Non-Core Retweeters by Number of Retweets between March 31, 2019 and May 25, 2020")
+```
+
+

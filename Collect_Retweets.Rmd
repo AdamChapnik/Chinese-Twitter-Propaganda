@@ -1,0 +1,99 @@
+---
+title: "Collect_Retweets"
+author: "Adam Chapnik"
+date: "12/4/2020"
+output: html_document
+---
+
+First I need to collect all the retweets of the core tweets.
+
+```{r}
+## WARNING: THIS BLOCK TAKES SEVERAL HOURS TO RUN ##
+# extract up to 100 rts per core tweet (output as df)
+vec_get_retweets <- function(x){
+  get_retweets(x, n = 100, token = tw_token)
+}
+
+get_retweets_unlimited <- function(statuses){ # statuses = vector of statuses
+
+  if (length(statuses) == 0){
+    return(NULL)
+  }
+
+  rl <- rate_limit(query = "get_retweets")
+
+  if (length(statuses) <= rl$remaining){
+    print(glue("Getting data for {length(statuses)} statuses"))
+    retweets <- lapply(statuses, vec_get_retweets)  
+  }else{
+
+    if (rl$remaining > 0){
+      statuses_first <- statuses[1:rl$remaining]
+      statuses_rest <- statuses[-(1:rl$remaining)]
+      print(glue("Getting data for {length(statuses_first)} statuses"))
+      retweets_first <- lapply(statuses, vec_get_retweets)
+      rl <- rate_limit(query = "get_retweets")
+    }else{
+      retweets_first <- NULL
+      statuses_rest <- statuses
+    }
+    wait <- rl$reset + 0.1
+    print(glue("Waiting for {round(wait,2)} minutes"))
+    Sys.sleep(wait * 60)
+
+    retweets_rest <- get_retweets_unlimited(statuses_rest)  
+    retweets <- bind_rows(retweets_first, retweets_rest)
+  }
+  return(retweets)
+}
+
+library(magicfor)
+
+statuses <- as.character(dplyr::filter(df, retweet_count > 0)$status_id) # only rts
+statuses <- split(statuses, ceiling(seq_along(statuses)/75)) # split vector into list of 75 groups (75 is status_id limit before timeout)
+
+magic_for(silent = TRUE)
+
+# statuses = list of grouped statuses
+for (i in seq_along(1:length(statuses))) { # loop through all grps
+  
+  rl <- rate_limit(query = "get_retweets")
+  
+  if (length(statuses[[i]]) > rl$remaining) { # if timer only allows less than group size
+    wait <- rl$reset + 0.1
+    print(glue("Waiting for {round(wait,2)} minutes"))
+    Sys.sleep(wait * 60) # wait for reset
+    x <- get_retweets_unlimited(statuses[[i]]) # output is list of dfs
+    retweets <- do_call_rbind(x) # rbind list of dfs
+
+  }else{ 
+    
+    if (length(statuses[[i]]) <= rl$remaining) { # if timer allows at least group size
+      print(glue("Getting data for {length(statuses[[i]])} statuses"))
+      x <- get_retweets_unlimited(statuses[[i]]) # output is list of dfs
+      retweets <- do_call_rbind(x) # rbind list of dfs
+    }
+  }
+  put(retweets) 
+}
+result <- magic_result() # output of for-loop is list of dfs
+retweets <- do_call_rbind(result$retweets) # rbind list of dfs
+write_as_csv(retweets, "Retweets.csv") 
+```
+
+Since I'm interested in a set of tweets after the death of George Floyd, I need to filter this dataset to the day of or after his death, May 25, 2020 at 9:25 pm CDT (3:25 am UTC). I will also split this into two other more specified datasets. The first will only contain retweets  that mention Black Lives Matters. The second only contain reweets that mention Hong Kong (and this will contain the BLM dataset within it). 
+
+```{r}
+retweets <- read_csv("Retweets.csv")
+```
+
+```{r}
+# put corresponding text_en and hashtags_en in 'retweets' df
+core_en <- read_csv("Core_tweets.csv") # adds "x" to start of user/status_id
+core.en <- core_en %>% dplyr::select(status_id, text_en, hashtags_en) %>% rename(retweet_status_id = status_id) # there happen to be duplicate rows... (fix this issue later)
+core.en <- unique(core.en, by = retweet_status_id) # remove duplicated rows
+retweets <- right_join(core.en, retweets, by = "retweet_status_id")
+write_as_csv(retweets, "Retweets.csv") 
+```
+
+

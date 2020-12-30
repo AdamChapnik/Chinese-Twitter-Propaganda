@@ -1,0 +1,724 @@
+---
+title: "Retweet_Network"
+author: "Adam Chapnik"
+date: "12/2/2020"
+output: html_document
+---
+
+```{r}
+library(igraph)
+library(knitr)
+library(rtweet)
+retweets <- read_csv("Retweets.csv")
+```
+
+
+```{r}
+# rts that mention BLM
+BLM.text <- retweets %>% dplyr::filter(grepl("Black Lives | BLM | black lives | racism | George Floyd", text_en))
+BLM.hash <- retweets %>% filter(grepl("racism | George | BlackLivesMatter | BLM | Racism | Floyd | ICantBreathe", hashtags_en))
+BLM <- rbind(BLM.text, BLM.hash)
+# rts that mention HK
+HK.text <- retweets %>% filter(grepl("Hong Kong | HKSAR", text_en))
+HK.hash <- retweets %>% filter(grepl("HongKong | HK | hk", hashtags_en))
+HK <- rbind(HK.text, HK.hash)
+```
+
+```{r}
+nrow(HK)
+nrow(BLM)
+nrow(filter(BLM, lang == "en"))/nrow(BLM)
+nrow(filter(BLM, lang == "zh"))/nrow(BLM)
+nrow(filter(HK, lang == "en"))/nrow(HK)
+nrow(filter(HK, lang == "zh"))/nrow(HK)
+```
+
+10,511 of the RTs mention, 4,352 mention BLM. 99.63% of the BLM tweets are in English, 0.0037% are in Chinese. 74.07% of the HK tweets are in English, 25.93% are in Chinese.
+
+Create dataset for retweet network. Much of this below code is from http://golovchenko.github.io/tutorials/snatrolls.html. The first retweet network will be of all retweets in the dataset. The second will be of just the ones that mention BLM, and the third will be of just the retweets mentioning Hong Kong.
+
+## Complete Retweet Network
+
+```{r}
+# extracting handle names for the senders (those who retweet)
+rt.sender <- retweets %>% dplyr::select(screen_name)
+# extracting handle names for the recievers (those who are being retweeted)
+rt.receiver <- retweets %>%  dplyr::select(retweet_screen_name)
+
+#storing reciever and sender handle names in one dataframe and removing duplicates
+handle.all <- unique(as.data.frame(as.vector(unlist(c(rt.sender, rt.receiver))))) 
+#renaming the handle names variable
+handle.all <- handle.all %>% rename(screen_name = "as.vector(unlist(c(rt.sender, rt.receiver)))")
+
+## merging the complete list of official CCP screen_names with the ones in rtw df to create "core" T/F variable
+# create list of core accounts
+active <- read_csv("Chinese_Twitter.csv")
+a <- lists_members("1236504353952980993", token = tw_token) # from "Yuan Yi Zhu"
+b <- lists_members("1195434296552632320", token = tw_token) # from "Jerker Hellström"
+c <- lists_members("1166098056594513920", token = tw_token) # from "News Asia 24"
+a <- a %>% dplyr::select(screen_name, name)
+b <- b %>% dplyr::select(screen_name, name)
+c <- c %>% dplyr::select(screen_name, name)
+x <- rbind(a, b, c)
+m_list1 <- paste0("@", x$screen_name)
+x$screen_name <- NULL
+x <- cbind(m_list1, x)
+x <- unique(x) %>% rename(m_list2 = name)
+active <- active %>% dplyr::select(m_list1, m_list2)
+core <- unique(rbind(active, x)) ## COMPLETE CCP ACCOUNT LIST ##
+# merge to rtw df
+core <- core %>% rename(screen_name = m_list1)
+core <- core$screen_name
+core <- (gsub("@", "", core)) #removing "@"
+core <- as.data.frame(core)
+core <- core %>% rename(screen_name = core)
+core$core <- "core"
+nodes <- right_join(core, handle.all)
+nodes <- replace(nodes, is.na(nodes), "non-core") # now we have a variable indicating wether a user is a core
+nodes <- unique(nodes)
+```
+
+
+```{r}
+### Creating a data frame from the sender-receiver objects
+rts.df <- data.frame(rt.sender, rt.receiver)
+### creating the retweetnetwork based on the sender-receiver df and the node attributes
+rts.g <- graph.data.frame(rts.df, directed=T, vertices = nodes)
+### removing self-ties
+rts.g <- simplify(rts.g, remove.loops = T, remove.multiple = F)
+
+# removing multiple edges between users
+g <- simplify(rts.g, remove.multiple = T, remove.loops = T)
+# creating a data frame with weighted and unweighted degree centrality for each profile
+df <- data.frame(name = V(g)$name,
+                 core = V(g)$core, indegree = degree(g, mode='in'),
+                 indegree_weighted = degree(rts.g, mode ="in"),
+                 outdegree = degree(g, mode='out'),
+                 outdegree_weighted = degree(rts.g, mode = "out"))
+#ranking users b weighted indegree n users * n retweets
+rank.indegree.w <- df %>% dplyr::select(name, core, indegree,
+                          indegree_weighted) %>% arrange(-indegree_weighted)
+```
+
+The table below shows the top 10 profiles ranked by indegree. Note that the data only includes ‘ego-centric’ “core” networks. In other words, the data only shows us who the “cores” retweet and not vice versa.
+
+```{r}
+kable(rank.indegree[1:10,], caption = "Top 10 profiles ranked by indegree")
+```
+
+```{r}
+kable(rank.indegree.w[1:10,], caption = "Top 10 profiles ranked by weighted indegree")
+```
+
+Visualize the complete network in R, by including only the core accounts. We see that 1) many of the “core” accounts do retweet each other, 2) while most of those that do are a part of a large connected component.
+
+```{r}
+### subsetting the graph by removing non-core
+#selecting nodes to exclude
+exclude <- V(rts.g)[core == "non-core"]
+#excluding the nodes
+g.core <- delete.vertices(rts.g, exclude)
+
+### vizualizing the graph
+par(bg ="grey10")
+plot.igraph(g.core,layout= layout.fruchterman.reingold(g.core),
+            edge.color="grey",
+            edge.curved= .2, vertex.label = NA, vertex.frame.color="#ffffff",
+            vertex.size = 2, edge.size = 0.01, edge.arrow.size = 0.01)
+```
+
+Now I will zoom in on the most interconnected part of the core network.
+
+```{r}
+#decomposing the graph into components and returning the largest one
+comp <- decompose(g.core, mode = c("weak"), max.comps = 1,
+                  min.vertices = 1)
+### plotting the graph
+par(bg ="grey10")
+plot.igraph(comp[[1]],layout= layout.fruchterman.reingold(comp[[1]]),
+            edge.color="grey",
+            edge.curved= .2, vertex.label = NA, vertex.frame.color="#ffffff",
+            vertex.size = 4, edge.size = 0.005, edge.arrow.size = 0.01)
+```
+
+
+The following is a list of the accounts included in the most interconnected part of the core network.
+
+```{r}
+df <- data.frame(name = V(comp[[1]])$name,
+                 core = V(comp[[1]])$core, indegree = degree(comp[[1]], mode='in'),
+                 outdegree = degree(comp[[1]], mode='out'))
+kable(df)
+```
+
+It is likely that the core accounts with little interaction with others are in a language other than English, such as a foreign embassy and ambassador in a country other than the United States. This is worth testing.
+
+Next I will visualize the full retweet network. To improve the quality, I will do this in Gephi.
+
+```{r}
+#exporting the rts.g graph object as a graphml file 
+write.graph(rts.g, file="retweet_network.graphml", format="graphml")
+```
+
+Now I will do community detection using the Louvain algorithm to distinguish between core accounts, coordinated accounts, and civilian accounts. Before running the algorithm, I expect the communities to be as follows: core accounts only retweeting, core accounts only being retweeting, core accounts retweeting and being retweeted, coordinated accounts, pro-CCP Chinese-speaking civilian accounts, anti-CCP Chinese-speaking civilian accounts, pro-CCP English-speaking accounts, and anti-CCP English-speaking accounts. In all, that would be a minimum of eight communities, but we will get a larger output. Although R can perform the Louvain algorithm, I will use Gephi as well for the community detection because it allows for more detail.
+
+## Complete BLM Retweet Network
+
+```{r}
+# extracting handle names for the senders (those who retweet)
+rt.sender <- BLM %>% filter(created_at >= "2020-05-25 00:00:01 UTC") %>% dplyr::select(screen_name)
+# extracting handle names for the recievers (those who are being retweeted)
+rt.receiver <- BLM %>% filter(created_at >= "2020-05-25 00:00:01 UTC") %>% dplyr::select(retweet_screen_name)
+
+#storing reciever and sender handle names in one dataframe and removing duplicates
+handle.all <- unique(as.data.frame(as.vector(unlist(c(rt.sender, rt.receiver))))) 
+#renaming the handle names variable
+handle.all <- handle.all %>% rename(screen_name = "as.vector(unlist(c(rt.sender, rt.receiver)))")
+
+# merging the complete list of official CCP screen_names with the ones in rt df to create "core" T/F variable
+core <- read_csv("Chinese_Twitter_2.csv") ## CORRECT CAPITALIZATION ##
+core <- core %>% rename(screen_name = m_list1)
+core <- core$screen_name
+core <- (gsub("@", "", core)) #removing "@"
+core <- as.data.frame(core)
+core <- core %>% rename(screen_name = core)
+core$core <- "core"
+nodes <- right_join(core, handle.all)
+nodes <- replace(nodes, is.na(nodes), "non-core") # now we have a variable indicating wether a user is a core
+```
+
+
+```{r}
+### Creating a data frame from the sender-receiver objects
+rts.df <- data.frame(rt.sender, rt.receiver)
+### creating the retweetnetwork based on the sender-receiver df and the node attributes
+rts.g <- graph.data.frame(rts.df, directed=T, vertices = nodes)
+### removing self-ties
+rts.g <- simplify(rts.g, remove.loops = T, remove.multiple = F)
+
+# removing multiple edges between users
+g <- simplify(rts.g, remove.multiple = T, remove.loops = T)
+# creating a data frame with weighted and unweighted degree centrality for each profile
+df <- data.frame(name = V(g)$name,
+                 core = V(g)$core, indegree = degree(g, mode='in'),
+                 indegree_weighted = degree(rts.g, mode ="in"),
+                 outdegree = degree(g, mode='out'),
+                 outdegree_weighted = degree(rts.g, mode = "out"))
+#ranking users b weigted indegree n users * n retweets
+rank.indegree.w <- df %>% select(name, core, indegree,
+                          indegree_weighted) %>% arrange(-indegree_weighted)
+```
+
+
+```{r}
+kable(rank.indegree[1:10,], caption = "Top 10 profiles ranked by indegree")
+```
+
+
+```{r}
+kable(rank.indegree.w[1:10,], caption = "Top 10 profiles ranked by weighted indegree")
+```
+
+
+```{r}
+### subsetting the graph by removing non-core
+#selecting nodes to exclude
+exclude <- V(rts.g)[core == "non-core"]
+#excluding the nodes
+g.core <- delete.vertices(rts.g, exclude)
+
+### vizualizing the graph
+set.seed(128)
+par(bg ="grey10")
+plot.igraph(g.core,layout= layout.fruchterman.reingold(g.core),
+            edge.color="grey",
+            edge.curved= .2, vertex.label = NA, vertex.frame.color="#ffffff",
+            vertex.size = 2, edge.size = 0.01, edge.arrow.size = 0.01)
+```
+
+The following is a list of the accounts included in this core network.
+
+```{r}
+df <- data.frame(name = V(g.core)$name,
+                 core = V(g.core)$core, indegree = degree(g.core, mode='in'),
+                 outdegree = degree(g.core, mode='out'))
+kable(df)
+```
+
+
+```{r}
+#exporting the rts.g graph object as a graphml file 
+write.graph(rts.g, file="BLM_network_Post.graphml", format="graphml")
+```
+
+# BLM Retweet Network Through Time #
+
+Retweets before May 25, 2020
+
+```{r}
+BLM_1 <- filter(BLM, created_at < "2020-05-25 00:00:01 UTC")
+
+# extracting handle names for the senders (those who retweet)
+rt.sender <- BLM_1 %>% dplyr::select(screen_name)
+# extracting handle names for the recievers (those who are being retweeted)
+rt.receiver <- BLM_1 %>%  dplyr::select(retweet_screen_name)
+
+#storing reciever and sender handle names in one dataframe and removing duplicates
+handle.all <- unique(as.data.frame(as.vector(unlist(c(rt.sender, rt.receiver))))) 
+#renaming the handle names variable
+handle.all <- handle.all %>% rename(screen_name = "as.vector(unlist(c(rt.sender, rt.receiver)))")
+
+# merging the complete list of official CCP screen_names with the ones in rt df to create "core" T/F variable
+core <- read_csv("Chinese_Twitter_2.csv") ## CORRECT CAPITALIZATION ##
+core <- core %>% rename(screen_name = m_list1)
+core <- core$screen_name
+core <- (gsub("@", "", core)) #removing "@"
+core <- as.data.frame(core)
+core <- core %>% rename(screen_name = core)
+core$core <- "core"
+nodes <- right_join(core, handle.all)
+nodes <- replace(nodes, is.na(nodes), "non-core") # now we have a variable indicating wether a user is a core
+```
+
+```{r}
+### Creating a data frame from the sender-receiver objects
+rts.df <- data.frame(rt.sender, rt.receiver)
+### creating the retweetnetwork based on the sender-receiver df and the node attributes
+rts.g <- graph.data.frame(rts.df, directed=T, vertices = nodes)
+### removing self-ties
+rts.g <- simplify(rts.g, remove.loops = T, remove.multiple = F)
+
+# removing multiple edges between users
+g <- simplify(rts.g, remove.multiple = T, remove.loops = T)
+# creating a data frame with weighted and unweighted degree centrality for each profile
+df <- data.frame(name = V(g)$name,
+                 core = V(g)$core, indegree = degree(g, mode='in'),
+                 indegree_weighted = degree(rts.g, mode ="in"),
+                 outdegree = degree(g, mode='out'),
+                 outdegree_weighted = degree(rts.g, mode = "out"))
+#ranking users b weigted indegree n users * n retweets
+rank.indegree.w <- df %>% dplyr::select(name, core, indegree,
+                          indegree_weighted) %>% arrange(-indegree_weighted)
+```
+
+```{r}
+kable(rank.indegree[1:10,], caption = "Top 10 profiles ranked by indegree")
+```
+
+
+```{r}
+kable(rank.indegree.w[1:10,], caption = "Top 10 profiles ranked by weighted indegree")
+```
+
+
+```{r}
+### subsetting the graph by removing non-core
+#selecting nodes to exclude
+exclude <- V(rts.g)[core == "non-core"]
+#excluding the nodes
+g.core <- delete.vertices(rts.g, exclude)
+
+### vizualizing the graph
+set.seed(128)
+par(bg ="grey10")
+plot.igraph(g.core,layout= layout.fruchterman.reingold(g.core),
+            edge.color="grey",
+            edge.curved= .2, vertex.label = NA, vertex.frame.color="#ffffff",
+            vertex.size = 2, edge.size = 0.01, edge.arrow.size = 0.01)
+```
+
+The following is a list of the accounts included in this core network.
+
+```{r}
+df <- data.frame(name = V(g.core)$name,
+                 core = V(g.core)$core, indegree = degree(g.core, mode='in'),
+                 outdegree = degree(g.core, mode='out'))
+kable(df)
+```
+
+
+```{r}
+#exporting the rts.g graph object as a graphml file 
+write.graph(g.core, file="BLM1_core_network.graphml", format="graphml")
+```
+
+Retweets after May 25, 2020
+
+```{r}
+BLM_2 <- filter(BLM, created_at >= "2020-05-25 00:00:01 UTC")
+
+# extracting handle names for the senders (those who retweet)
+rt.sender <- BLM_2 %>% dplyr::select(screen_name)
+# extracting handle names for the recievers (those who are being retweeted)
+rt.receiver <- BLM_2 %>%  dplyr::select(retweet_screen_name)
+
+#storing reciever and sender handle names in one dataframe and removing duplicates
+handle.all <- unique(as.data.frame(as.vector(unlist(c(rt.sender, rt.receiver))))) 
+#renaming the handle names variable
+handle.all <- handle.all %>% rename(screen_name = "as.vector(unlist(c(rt.sender, rt.receiver)))")
+
+# merging the complete list of official CCP screen_names with the ones in rt df to create "core" T/F variable
+core <- read_csv("Chinese_Twitter_2.csv") ## CORRECT CAPITALIZATION ##
+core <- core %>% rename(screen_name = m_list1)
+core <- core$screen_name
+core <- (gsub("@", "", core)) #removing "@"
+core <- as.data.frame(core)
+core <- core %>% rename(screen_name = core)
+core$core <- "core"
+nodes <- right_join(core, handle.all)
+nodes <- replace(nodes, is.na(nodes), "non-core") # now we have a variable indicating wether a user is a core
+```
+
+```{r}
+### Creating a data frame from the sender-receiver objects
+rts.df <- data.frame(rt.sender, rt.receiver)
+### creating the retweetnetwork based on the sender-receiver df and the node attributes
+rts.g <- graph.data.frame(rts.df, directed=T, vertices = nodes)
+### removing self-ties
+rts.g <- simplify(rts.g, remove.loops = T, remove.multiple = F)
+
+# removing multiple edges between users
+g <- simplify(rts.g, remove.multiple = T, remove.loops = T)
+# creating a data frame with weighted and unweighted degree centrality for each profile
+df <- data.frame(name = V(g)$name,
+                 core = V(g)$core, indegree = degree(g, mode='in'),
+                 indegree_weighted = degree(rts.g, mode ="in"),
+                 outdegree = degree(g, mode='out'),
+                 outdegree_weighted = degree(rts.g, mode = "out"))
+#ranking users b weigted indegree n users * n retweets
+rank.indegree.w <- df %>% dplyr::select(name, core, indegree,
+                          indegree_weighted) %>% arrange(-indegree_weighted)
+```
+
+```{r}
+kable(rank.indegree[1:10,], caption = "Top 10 profiles ranked by indegree")
+```
+
+
+```{r}
+kable(rank.indegree.w[1:10,], caption = "Top 10 profiles ranked by weighted indegree")
+```
+
+
+```{r}
+### subsetting the graph by removing non-core
+#selecting nodes to exclude
+exclude <- V(rts.g)[core == "non-core"]
+#excluding the nodes
+g.core <- delete.vertices(rts.g, exclude)
+
+### vizualizing the graph
+set.seed(128)
+par(bg ="grey10")
+plot.igraph(g.core,layout= layout.fruchterman.reingold(g.core),
+            edge.color="grey",
+            edge.curved= .2, vertex.label = NA, vertex.frame.color="#ffffff",
+            vertex.size = 2, edge.size = 0.01, edge.arrow.size = 0.01)
+```
+
+The following is a list of the accounts included in this core network.
+
+```{r}
+df <- data.frame(name = V(g.core)$name,
+                 core = V(g.core)$core, indegree = degree(g.core, mode='in'),
+                 outdegree = degree(g.core, mode='out'))
+kable(df)
+```
+
+
+```{r}
+#exporting the rts.g graph object as a graphml file 
+write.graph(g.core, file="BLM2_core_network.graphml", format="graphml")
+```
+
+
+## Hong Kong Retweet Network
+
+```{r}
+# extracting handle names for the senders (those who retweet)
+rt.sender <- HK %>% filter(created_at >= "2020-05-25 00:00:01 UTC") %>% dplyr::select(screen_name)
+# extracting handle names for the recievers (those who are being retweeted)
+rt.receiver <- HK %>% filter(created_at >= "2020-05-25 00:00:01 UTC") %>% dplyr::select(retweet_screen_name)
+
+#storing reciever and sender handle names in one dataframe and removing duplicates
+handle.all <- unique(as.data.frame(as.vector(unlist(c(rt.sender, rt.receiver))))) 
+#renaming the handle names variable
+handle.all <- handle.all %>% rename(screen_name = "as.vector(unlist(c(rt.sender, rt.receiver)))")
+
+# merging the complete list of official CCP screen_names with the ones in rt df to create "core" T/F variable
+core <- read_csv("Chinese_Twitter_2.csv") ## CORRECT CAPITALIZATION ##
+core <- core %>% rename(screen_name = m_list1)
+core <- core$screen_name
+core <- (gsub("@", "", core)) #removing "@"
+core <- as.data.frame(core)
+core <- core %>% rename(screen_name = core)
+core$core <- "core"
+nodes <- right_join(core, handle.all)
+nodes <- replace(nodes, is.na(nodes), "non-core") # now we have a variable indicating wether a user is a core
+```
+
+```{r}
+### Creating a data frame from the sender-receiver objects
+rts.df <- data.frame(rt.sender, rt.receiver)
+### creating the retweetnetwork based on the sender-receiver df and the node attributes
+rts.g <- graph.data.frame(rts.df, directed=T, vertices = nodes)
+### removing self-ties
+rts.g <- simplify(rts.g, remove.loops = T, remove.multiple = F)
+
+# removing multiple edges between users
+g <- simplify(rts.g, remove.multiple = T, remove.loops = T)
+# creating a data frame with weighted and unweighted degree centrality for each profile
+df <- data.frame(name = V(g)$name,
+                 core = V(g)$core, indegree = degree(g, mode='in'),
+                 indegree_weighted = degree(rts.g, mode ="in"),
+                 outdegree = degree(g, mode='out'),
+                 outdegree_weighted = degree(rts.g, mode = "out"))
+#ranking users b weigted indegree n users * n retweets
+rank.indegree.w <- df %>% select(name, core, indegree,
+                          indegree_weighted) %>% arrange(-indegree_weighted)
+```
+
+```{r}
+kable(rank.indegree[1:10,], caption = "Top 10 profiles ranked by indegree")
+```
+
+```{r}
+kable(rank.indegree.w[1:10,], caption = "Top 10 profiles ranked by weighted indegree")
+```
+
+```{r}
+### subsetting the graph by removing non-core
+#selecting nodes to exclude
+exclude <- V(rts.g)[core == "non-core"]
+#excluding the nodes
+g.core <- delete.vertices(rts.g, exclude)
+
+### vizualizing the graph
+par(bg ="grey10")
+plot.igraph(g.core,layout= layout.fruchterman.reingold(g.core),
+            edge.color="grey",
+            edge.curved= .2, vertex.label = NA, vertex.frame.color="#ffffff",
+            vertex.size = 2, edge.size = 0.01, edge.arrow.size = 0.01)
+```
+
+Now I will zoom in on the most interconnected part of the core network.
+
+```{r}
+#decomposing the graph into components and returning the largest one
+comp <- decompose(g.core, mode = c("weak"), max.comps = 1,
+                  min.vertices = 1)
+### plotting the graph
+par(bg ="grey10")
+plot.igraph(comp[[1]],layout= layout.fruchterman.reingold(comp[[1]]),
+            edge.color="grey",
+            edge.curved= .2, vertex.label = NA, vertex.frame.color="#ffffff",
+            vertex.size = 4, edge.size = 0.005, edge.arrow.size = 0.01)
+```
+
+The following is a list of the accounts included in the most interconnected part of the core network.
+
+```{r}
+df <- data.frame(name = V(comp[[1]])$name,
+                 core = V(comp[[1]])$core, indegree = degree(comp[[1]], mode='in'),
+                 outdegree = degree(comp[[1]], mode='out'))
+kable(df)
+```
+
+
+```{r}
+#exporting the rts.g graph object as a graphml file 
+write.graph(rts.g, file="HK_network_Post.graphml", format="graphml")
+```
+
+# HK Core Network Through Time #
+
+Retweets before May 25, 2020
+
+```{r}
+HK_1 <- filter(HK, created_at < "2020-05-25 00:00:01 UTC")
+
+# extracting handle names for the senders (those who retweet)
+rt.sender <- HK_1 %>% dplyr::select(screen_name)
+# extracting handle names for the recievers (those who are being retweeted)
+rt.receiver <- HK_1 %>%  dplyr::select(retweet_screen_name)
+
+#storing reciever and sender handle names in one dataframe and removing duplicates
+handle.all <- unique(as.data.frame(as.vector(unlist(c(rt.sender, rt.receiver))))) 
+#renaming the handle names variable
+handle.all <- handle.all %>% rename(screen_name = "as.vector(unlist(c(rt.sender, rt.receiver)))")
+
+# merging the complete list of official CCP screen_names with the ones in rt df to create "core" T/F variable
+core <- read_csv("Chinese_Twitter_2.csv") ## CORRECT CAPITALIZATION ##
+core <- core %>% rename(screen_name = m_list1)
+core <- core$screen_name
+core <- (gsub("@", "", core)) #removing "@"
+core <- as.data.frame(core)
+core <- core %>% rename(screen_name = core)
+core$core <- "core"
+nodes <- right_join(core, handle.all)
+nodes <- replace(nodes, is.na(nodes), "non-core") # now we have a variable indicating wether a user is a core
+```
+
+```{r}
+### Creating a data frame from the sender-receiver objects
+rts.df <- data.frame(rt.sender, rt.receiver)
+### creating the retweetnetwork based on the sender-receiver df and the node attributes
+rts.g <- graph.data.frame(rts.df, directed=T, vertices = nodes)
+### removing self-ties
+rts.g <- simplify(rts.g, remove.loops = T, remove.multiple = F)
+
+# removing multiple edges between users
+g <- simplify(rts.g, remove.multiple = T, remove.loops = T)
+# creating a data frame with weighted and unweighted degree centrality for each profile
+df <- data.frame(name = V(g)$name,
+                 core = V(g)$core, indegree = degree(g, mode='in'),
+                 indegree_weighted = degree(rts.g, mode ="in"),
+                 outdegree = degree(g, mode='out'),
+                 outdegree_weighted = degree(rts.g, mode = "out"))
+#ranking users b weigted indegree n users * n retweets
+rank.indegree.w <- df %>% dplyr::select(name, core, indegree,
+                          indegree_weighted) %>% arrange(-indegree_weighted)
+```
+
+```{r}
+kable(rank.indegree[1:10,], caption = "Top 10 profiles ranked by indegree")
+```
+
+
+```{r}
+kable(rank.indegree.w[1:10,], caption = "Top 10 profiles ranked by weighted indegree")
+```
+
+
+```{r}
+### subsetting the graph by removing non-core
+#selecting nodes to exclude
+exclude <- V(rts.g)[core == "non-core"]
+#excluding the nodes
+g.core <- delete.vertices(rts.g, exclude)
+
+### vizualizing the graph
+set.seed(128)
+par(bg ="grey10")
+plot.igraph(g.core,layout= layout.fruchterman.reingold(g.core),
+            edge.color="grey",
+            edge.curved= .2, vertex.label = NA, vertex.frame.color="#ffffff",
+            vertex.size = 2, edge.size = 0.01, edge.arrow.size = 0.01)
+```
+
+The following is a list of the accounts included in this core network.
+
+```{r}
+df <- data.frame(name = V(g.core)$name,
+                 core = V(g.core)$core, indegree = degree(g.core, mode='in'),
+                 outdegree = degree(g.core, mode='out'))
+kable(df)
+```
+
+
+```{r}
+#exporting the rts.g graph object as a graphml file 
+write.graph(g.core, file="HK1_core_network.graphml", format="graphml")
+```
+
+Retweets after May 25, 2020
+
+```{r}
+HK_2 <- filter(HK, created_at >= "2020-05-25 00:00:01 UTC")
+
+# extracting handle names for the senders (those who retweet)
+rt.sender <- HK_2 %>% dplyr::select(screen_name)
+# extracting handle names for the recievers (those who are being retweeted)
+rt.receiver <- HK_2 %>%  dplyr::select(retweet_screen_name)
+
+#storing reciever and sender handle names in one dataframe and removing duplicates
+handle.all <- unique(as.data.frame(as.vector(unlist(c(rt.sender, rt.receiver))))) 
+#renaming the handle names variable
+handle.all <- handle.all %>% rename(screen_name = "as.vector(unlist(c(rt.sender, rt.receiver)))")
+
+# merging the complete list of official CCP screen_names with the ones in rt df to create "core" T/F variable
+core <- read_csv("Chinese_Twitter_2.csv") ## CORRECT CAPITALIZATION ##
+core <- core %>% rename(screen_name = m_list1)
+core <- core$screen_name
+core <- (gsub("@", "", core)) #removing "@"
+core <- as.data.frame(core)
+core <- core %>% rename(screen_name = core)
+core$core <- "core"
+nodes <- right_join(core, handle.all)
+nodes <- replace(nodes, is.na(nodes), "non-core") # now we have a variable indicating wether a user is a core
+```
+
+```{r}
+### Creating a data frame from the sender-receiver objects
+rts.df <- data.frame(rt.sender, rt.receiver)
+### creating the retweetnetwork based on the sender-receiver df and the node attributes
+rts.g <- graph.data.frame(rts.df, directed=T, vertices = nodes)
+### removing self-ties
+rts.g <- simplify(rts.g, remove.loops = T, remove.multiple = F)
+
+# removing multiple edges between users
+g <- simplify(rts.g, remove.multiple = T, remove.loops = T)
+# creating a data frame with weighted and unweighted degree centrality for each profile
+df <- data.frame(name = V(g)$name,
+                 core = V(g)$core, indegree = degree(g, mode='in'),
+                 indegree_weighted = degree(rts.g, mode ="in"),
+                 outdegree = degree(g, mode='out'),
+                 outdegree_weighted = degree(rts.g, mode = "out"))
+#ranking users b weigted indegree n users * n retweets
+rank.indegree.w <- df %>% dplyr::select(name, core, indegree,
+                          indegree_weighted) %>% arrange(-indegree_weighted)
+```
+
+```{r}
+kable(rank.indegree[1:10,], caption = "Top 10 profiles ranked by indegree")
+```
+
+
+```{r}
+kable(rank.indegree.w[1:10,], caption = "Top 10 profiles ranked by weighted indegree")
+```
+
+
+```{r}
+### subsetting the graph by removing non-core
+#selecting nodes to exclude
+exclude <- V(rts.g)[core == "non-core"]
+#excluding the nodes
+g.core <- delete.vertices(rts.g, exclude)
+
+### vizualizing the graph
+set.seed(128)
+par(bg ="grey10")
+plot.igraph(g.core,layout= layout.fruchterman.reingold(g.core),
+            edge.color="grey",
+            edge.curved= .2, vertex.label = NA, vertex.frame.color="#ffffff",
+            vertex.size = 2, edge.size = 0.01, edge.arrow.size = 0.01)
+```
+
+The following is a list of the accounts included in this core network.
+
+```{r}
+df <- data.frame(name = V(g.core)$name,
+                 core = V(g.core)$core, indegree = degree(g.core, mode='in'),
+                 outdegree = degree(g.core, mode='out'))
+kable(df)
+```
+
+
+```{r}
+#exporting the rts.g graph object as a graphml file 
+write.graph(g.core, file="HK2_core_network.graphml", format="graphml")
+```
+
+```{r}
+filter(HK, created_at < "2020-05-25 00:00:01 UTC") %>% filter(lang == "en")
+filter(HK, created_at < "2020-05-25 00:00:01 UTC")
+```
+
+```{r}
+library(dplyr)
+filter(HK, created_at >= "2020-05-25 00:00:01 UTC") %>% filter(lang == "en")
+filter(HK, created_at >= "2020-05-25 00:00:01 UTC") %>% filter(lang == "en") %>% filter(grepl("Black Lives | BLM | black lives | racism | George Floyd", text_en))
+length(unique(filter(HK, created_at >= "2020-05-25 00:00:01 UTC")$status_id))
+```
+

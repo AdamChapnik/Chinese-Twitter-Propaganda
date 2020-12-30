@@ -1,0 +1,105 @@
+---
+title: "ID_Images"
+author: "Adam Chapnik"
+date: "12/4/2020"
+output: html_document
+---
+
+```{r}
+library("digest")
+library(magick)
+library(imager)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+core <- read_csv("Core_tweets.csv")
+core <- unique(core, by = status_id) # ensure all tweets are unique
+media.jpg <- core %>% filter(grepl("photo", media_type)) # tweets w/ "photo" as media
+media.jpg <- core %>% filter(grepl("media", media_url)) %>% dplyr::select(media_url) # and "media" in url (to avoid videos)
+```
+
+```{r}
+# download filtered urls in "Media" folder
+url_list <- media.jpg$media_url
+url_list <- url_list # full list of image urls
+dest_list <- gsub("http://pbs.twimg.com/media/", "", url_list)
+dest_list <- paste0("/Users/adamchapnik/Chinese\ Twitter/Media/", dest_list) # downloaded location
+## download image
+download_image <- function(url_list, dest_list){
+download.file(url_list, dest_list, method = "libcurl", mode = 'wb', cacheOK = F, quiet = T)
+}
+```
+
+```{r}
+# read all images from "Media"
+read_images <- function(){ # no input
+test_dir = "/Users/adamchapnik/Chinese\ Twitter/Media" 
+filelist <- dir(test_dir, recursive = TRUE, all.files = TRUE, full.names = TRUE)
+im <- load.image(filelist)
+return(im)
+}
+```
+
+Below code mostly from https://cran.r-project.org/web/packages/imager/vignettes/gettingstarted.html
+
+Represent each image by its RBG color histogram, normalize those histograms, and output a dataframe for the image.
+
+```{r}
+#Hist. equalisation for grayscale
+hist.eq <- function(im) as.cimg(ecdf(im)(im),dim=dim(im))
+# normalize RBG historgram, with input image im
+normalize <- function(im){
+cn <- imsplit(im,"c") #Split across colour channels
+cn.eq <- map_il(cn,hist.eq) #run hist.eq on each
+test <- as.data.frame(cn.eq)
+return(test)
+}
+```
+
+Bin each channel into 128 intervals and get 384-dimensional vector.
+
+```{r}
+# input a normalized image dataframe
+vectorize_hist <- function(test){
+R <- test %>% filter(im == "c = 1") %>% select(value)
+R <- R$value
+R <- hist(R, seq(0, 1, by = 0.0078125), plot = F)$counts
+G <- test %>% filter(im == "c = 2") %>% select(value) 
+G <- G$value
+G <- hist(G, seq(0, 1, by = 0.0078125), plot = F)$counts
+B <- test %>% filter(im == "c = 2") %>% select(value) 
+B <- B$value
+B <- hist(B, seq(0, 1, by = 0.0078125), plot = F)$counts
+vec <- c(R, G, B)
+return(vec)
+}
+```
+
+In order to save space on my computer, I will run all of these functions above together, so that I download the first image in the "core" dataset, read it back into R, produce a normalized RBG color histogram, bin each channel into 128 intervals and get a 384-dimensional vector, then delete the image from my computer. That way I can produce and save the complete list of vectors without being left with storing all of the images. The output will be a dataframe with each row being a unique vector corresponding to each image from the "core" dataset.
+
+```{r}
+vectorize_images <- function(x){ # input vector c(1:length(url_list))
+mapply(download_image, url_list[x], dest_list[x])
+im <- read_images()
+df <- normalize(im)
+vec <- invisible(vectorize_hist(df))
+file.remove(dest_list[x])
+return(vec)
+}
+vects <- invisible(lapply(c(1:length(url_list)), vectorize_images))
+df <- as.data.frame(matrix(unlist(vects), ncol = 384))
+df
+```
+
+```{r}
+unique(duplicated(df)) ## ALL PHOTOS ARE UNIQUE
+```
+
+
+
+
+
+

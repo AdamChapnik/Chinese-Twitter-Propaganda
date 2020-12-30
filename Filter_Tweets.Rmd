@@ -1,0 +1,417 @@
+---
+title: "Filter_Tweets"
+author: "Adam Chapnik"
+date: "12/1/2020"
+output: html_document
+---
+```{r}
+library(rtweet)
+library(tidytext)
+library(ggpubr)
+library(tidyverse)
+library(dplyr)
+library(glue)
+library(googleLanguageR)
+library(rvest)
+usethis::edit_r_environ()
+gl_auth("[GL_AUTH].json")
+```
+
+```{r}
+## Keep rtweet updated ##
+## install devtools package if it's not already
+if (!requireNamespace("devtools", quietly = TRUE)) {
+  install.packages("devtools")
+}
+
+## install dev version of rtweet from github
+devtools::install_github("mkearney/rtweet")
+
+## load rtweet package
+library(rtweet)
+
+tw_token <-
+rtweet::create_token(
+consumer_key = "[consumer_key]",
+consumer_secret = "[consumer_secret]",
+access_token = "[access_token]",
+access_secret = "[access_secret]"
+)
+```
+
+```{r eval=FALSE, include=FALSE}
+df <- read_csv("Tweets.csv")
+chinese_en <- read_csv("Translated_tweets.csv")
+english <- df %>% dplyr::filter(lang == "en")
+```
+
+Now that I have a full dataset of tweets from the main Chinese accounts during the period of interest, in English or Chinese, I can filter for the tweets with keywords and hashtags I'm interested in.
+
+I will filter for keywords in the tweets themselves for the English dataset and the translated Chinese dataset. For the tweets in which no keywords were found, I will then filter for hashtags. I would filter for text found in attached images and websites, but the R OCR package Tesseract is not able to distinguish text well enough for that purpose. Obviously, filtering for keywords like this will also fail to include typos or will include tweets that are actually not of interest, but that excess in/exclusion should be negligible
+
+The keywords are under three umbrellas: US, HK, and BLM. I will filter by tweets that have: (US and HK) or (US and BLM) or (HK and BLM) or BLM. Under each umbrella, for the tweets written in English, the specific keywords (i.e. strings of letters) are:
+
+US: US, U.S., America, United States, Washington
+HK: Hong Kong, HKSAR
+BLM: Black Lives, BLM, black lives, racism, George Floyd
+
+For the tweets written in Chinese and translated to English, the specific keywords (i.e. strings of letters) are:
+
+US: US, U.S., America, United States, Washington
+HK: Hong Kong, HKSAR
+BLM: racism, George Floyd
+
+```{r}
+## filter for keywords (english)
+x <- list(c("US", "U.S.", "America", "United States", "Washington"), c("Hong Kong", "HKSAR"), c("Black Lives", "BLM", "black lives", "racism", "George Floyd"))
+# (US and HK)
+a <- dplyr::filter(english, (grepl(x[[1]][1], text) & grepl(x[[2]][1], text)))
+b <- anti_join(english, a) %>% 
+    dplyr::filter((grepl(x[[1]][1], text) & grepl(x[[2]][2], text)))
+c <- anti_join(english, b) %>% 
+    dplyr::filter((grepl(x[[1]][2], text) & grepl(x[[2]][1], text)))
+d <- anti_join(english, c) %>% 
+    dplyr::filter((grepl(x[[1]][2], text) & grepl(x[[2]][2], text)))
+e <- anti_join(english, d) %>% 
+    dplyr::filter((grepl(x[[1]][3], text) & grepl(x[[2]][1], text)))
+f <- anti_join(english, e) %>% 
+    dplyr::filter((grepl(x[[1]][3], text) & grepl(x[[2]][2], text)))
+g <- anti_join(english, f) %>% 
+    dplyr::filter((grepl(x[[1]][4], text) & grepl(x[[2]][1], text)))
+h <- anti_join(english, g) %>% 
+    dplyr::filter((grepl(x[[1]][4], text) & grepl(x[[2]][2], text)))
+i <- anti_join(english, h) %>% 
+    dplyr::filter((grepl(x[[1]][5], text) & grepl(x[[2]][1], text)))
+j <- anti_join(english, i) %>% 
+    dplyr::filter((grepl(x[[1]][5], text) & grepl(x[[2]][2], text)))
+filtered_english1 <- rbind(a,b,c,d,e,f,g,h,i,j)
+# (HK and BLM)
+a <- dplyr::filter(english, (grepl(x[[3]][1], text) & grepl(x[[2]][1], text)))
+b <- anti_join(english, a) %>% 
+    dplyr::filter((grepl(x[[3]][1], text) & grepl(x[[2]][2], text)))
+c <- anti_join(english, b) %>% 
+    dplyr::filter((grepl(x[[3]][2], text) & grepl(x[[2]][1], text)))
+d <- anti_join(english, c) %>% 
+    dplyr::filter((grepl(x[[3]][2], text) & grepl(x[[2]][2], text)))
+e <- anti_join(english, d) %>% 
+    dplyr::filter((grepl(x[[3]][3], text) & grepl(x[[2]][1], text)))
+f <- anti_join(english, e) %>% 
+    dplyr::filter((grepl(x[[3]][3], text) & grepl(x[[2]][2], text)))
+g <- anti_join(english, f) %>% 
+    dplyr::filter((grepl(x[[3]][4], text) & grepl(x[[2]][1], text)))
+h <- anti_join(english, g) %>% 
+    dplyr::filter((grepl(x[[3]][4], text) & grepl(x[[2]][2], text)))
+i <- anti_join(english, h) %>% 
+    dplyr::filter((grepl(x[[3]][5], text) & grepl(x[[2]][1], text)))
+j <- anti_join(english, i) %>% 
+    dplyr::filter((grepl(x[[3]][5], text) & grepl(x[[2]][2], text)))
+filtered_english2 <- rbind(a,b,c,d,e,f,g,h,i,j)
+# (US and BLM)
+a <- dplyr::filter(english, (grepl(x[[1]][1], text) & grepl(x[[3]][1], text)))
+b <- anti_join(english, a) %>% 
+    dplyr::filter((grepl(x[[1]][1], text) & grepl(x[[3]][2], text)))
+c <- anti_join(english, b) %>% 
+    dplyr::filter((grepl(x[[1]][1], text) & grepl(x[[3]][3], text)))
+d <- anti_join(english, c) %>% 
+    dplyr::filter((grepl(x[[1]][1], text) & grepl(x[[3]][4], text)))
+e <- anti_join(english, d) %>% 
+    dplyr::filter((grepl(x[[1]][1], text) & grepl(x[[3]][5], text)))
+f <- anti_join(english, e) %>% 
+    dplyr::filter((grepl(x[[1]][2], text) & grepl(x[[3]][1], text)))
+g <- anti_join(english, f) %>% 
+   dplyr::filter((grepl(x[[1]][2], text) & grepl(x[[3]][2], text)))
+h <- anti_join(english, g) %>% 
+    dplyr::filter((grepl(x[[1]][2], text) & grepl(x[[3]][3], text)))
+i <- anti_join(english, h) %>% 
+    dplyr::filter((grepl(x[[1]][2], text) & grepl(x[[3]][4], text)))
+j <- anti_join(english, i) %>% 
+    dplyr::filter((grepl(x[[1]][2], text) & grepl(x[[3]][5], text)))
+k <- anti_join(english, j) %>% 
+    dplyr::filter((grepl(x[[1]][3], text) & grepl(x[[3]][1], text)))
+l <- anti_join(english, k) %>% 
+    dplyr::filter((grepl(x[[1]][3], text) & grepl(x[[3]][2], text)))
+m <- anti_join(english, l) %>%
+    dplyr::filter((grepl(x[[1]][3], text) & grepl(x[[3]][3], text)))
+n <- anti_join(english, m) %>% 
+    dplyr::filter((grepl(x[[1]][3], text) & grepl(x[[3]][4], text)))
+o <- anti_join(english, n) %>% 
+    dplyr::filter((grepl(x[[1]][3], text) & grepl(x[[3]][5], text)))
+p <- anti_join(english, o) %>% 
+    dplyr::filter((grepl(x[[1]][4], text) & grepl(x[[3]][1], text)))
+q <- anti_join(english, p) %>% 
+    dplyr::filter((grepl(x[[1]][4], text) & grepl(x[[3]][2], text)))
+r <- anti_join(english, q) %>% 
+    dplyr::filter((grepl(x[[1]][4], text) & grepl(x[[3]][3], text)))
+s <- anti_join(english, r) %>% 
+    dplyr::filter((grepl(x[[1]][4], text) & grepl(x[[3]][4], text)))
+t <- anti_join(english, s) %>% 
+    dplyr::filter((grepl(x[[1]][4], text) & grepl(x[[3]][5], text)))
+u <- anti_join(english, t) %>% 
+    dplyr::filter((grepl(x[[1]][5], text) & grepl(x[[3]][1], text)))
+v <- anti_join(english, u) %>% 
+    dplyr::filter((grepl(x[[1]][5], text) & grepl(x[[3]][2], text)))
+w <- anti_join(english, v) %>% 
+    dplyr::filter((grepl(x[[1]][5], text) & grepl(x[[3]][3], text)))
+y <- anti_join(english, w) %>% 
+    dplyr::filter((grepl(x[[1]][5], text) & grepl(x[[3]][4], text)))
+z <- anti_join(english, y) %>% 
+    dplyr::filter((grepl(x[[1]][5], text) & grepl(x[[3]][5], text)))
+filtered_english3 <- rbind(a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,y,z)
+# BLM
+a <- dplyr::filter(english, (grepl(x[[3]][1], text)))
+b <- anti_join(english, a) %>% 
+    dplyr::filter((grepl(x[[3]][2], text)))
+c <- anti_join(english, b) %>% 
+    dplyr::filter((grepl(x[[3]][3], text)))
+d <- anti_join(english, c) %>% 
+    dplyr::filter((grepl(x[[3]][4], text)))
+e <- anti_join(english, d) %>% 
+    dplyr::filter((grepl(x[[3]][5], text)))
+filtered_english4 <- rbind(a,b,c,d,e)
+filtered_english <- rbind(filtered_english1, filtered_english2, filtered_english3, filtered_english4)
+
+## filter for keywords (chinese)
+x <- list(c("US", "U.S.", "America", "United States", "Washington"), c("Hong Kong", "HKSAR"), c("racism", "George Floyd"))
+# (US and HK)
+a <- dplyr::filter(chinese_en, (grepl(x[[1]][1], text_en) & grepl(x[[2]][1], text_en)))
+b <- anti_join(chinese_en, a) %>% 
+    dplyr::filter((grepl(x[[1]][1], text_en) & grepl(x[[2]][2], text_en)))
+c <- anti_join(chinese_en, b) %>% 
+    dplyr::filter((grepl(x[[1]][2], text_en) & grepl(x[[2]][1], text_en)))
+d <- anti_join(chinese_en, c) %>% 
+    dplyr::filter((grepl(x[[1]][2], text_en) & grepl(x[[2]][2], text_en)))
+e <- anti_join(chinese_en, d) %>% 
+    dplyr::filter((grepl(x[[1]][3], text_en) & grepl(x[[2]][1], text_en)))
+f <- anti_join(chinese_en, e) %>% 
+    dplyr::filter((grepl(x[[1]][3], text_en) & grepl(x[[2]][2], text_en)))
+g <- anti_join(chinese_en, f) %>% 
+    dplyr::filter((grepl(x[[1]][4], text_en) & grepl(x[[2]][1], text_en)))
+h <- anti_join(chinese_en, g) %>% 
+    dplyr::filter((grepl(x[[1]][4], text_en) & grepl(x[[2]][2], text_en)))
+i <- anti_join(chinese_en, h) %>% 
+    dplyr::filter((grepl(x[[1]][5], text_en) & grepl(x[[2]][1], text_en)))
+j <- anti_join(chinese_en, i) %>% 
+    dplyr::filter((grepl(x[[1]][5], text_en) & grepl(x[[2]][2], text_en)))
+filtered_chinese1 <- rbind(a,b,c,d,e,f,g,h,i,j)
+# (HK and BLM)
+a <- dplyr::filter(chinese_en, (grepl(x[[3]][1], text_en) & grepl(x[[2]][1], text_en)))
+b <- anti_join(chinese_en, a) %>% 
+    dplyr::filter((grepl(x[[3]][1], text_en) & grepl(x[[2]][2], text_en)))
+c <- anti_join(chinese_en, b) %>% 
+    dplyr::filter((grepl(x[[3]][2], text_en) & grepl(x[[2]][1], text_en)))
+d <- anti_join(chinese_en, c) %>% 
+    dplyr::filter((grepl(x[[3]][2], text_en) & grepl(x[[2]][2], text_en)))
+filtered_chinese2 <- rbind(a,b,c,d)
+# (US and BLM)
+a <- dplyr::filter(chinese_en, (grepl(x[[1]][1], text_en) & grepl(x[[3]][1], text_en)))
+b <- anti_join(chinese_en, a) %>% 
+    dplyr::filter((grepl(x[[1]][1], text_en) & grepl(x[[3]][2], text_en)))
+c <- anti_join(chinese_en, b) %>% 
+    dplyr::filter((grepl(x[[1]][2], text_en) & grepl(x[[3]][1], text_en)))
+d <- anti_join(chinese_en, c) %>% 
+    dplyr::filter((grepl(x[[1]][2], text_en) & grepl(x[[3]][2], text_en)))
+e <- anti_join(chinese_en, d) %>% 
+    dplyr::filter((grepl(x[[1]][3], text_en) & grepl(x[[3]][1], text_en)))
+f <- anti_join(chinese_en, e) %>% 
+    dplyr::filter((grepl(x[[1]][3], text_en) & grepl(x[[3]][2], text_en)))
+g <- anti_join(chinese_en, f) %>% 
+    dplyr::filter((grepl(x[[1]][4], text_en) & grepl(x[[3]][1], text_en)))
+h <- anti_join(chinese_en, g) %>% 
+    dplyr::filter((grepl(x[[1]][4], text_en) & grepl(x[[3]][2], text_en)))
+i <- anti_join(chinese_en, h) %>% 
+    dplyr::filter((grepl(x[[1]][5], text_en) & grepl(x[[3]][1], text_en)))
+j <- anti_join(chinese_en, i) %>% 
+    dplyr::filter((grepl(x[[1]][5], text_en) & grepl(x[[3]][2], text_en)))
+filtered_chinese3 <- rbind(a,b,c,d,e,f,g,h,i,j)
+# BLM
+a <- dplyr::filter(chinese_en, (grepl(x[[3]][1], text_en)))
+b <- anti_join(chinese_en, a) %>% 
+    dplyr::filter((grepl(x[[3]][2], text_en)))
+filtered_chinese4 <- rbind(a,b)
+filtered_chinese <- rbind(filtered_chinese1, filtered_chinese2, filtered_chinese3, filtered_chinese4)
+```
+
+Now, excluding the tweets filtered so far, I will filter by tweets that have: (US and BLM) or (HK and BLM) or (US and Other) or (HK and Other) or (BLM and Other) or BLM. Under each umbrella, for the tweets written in English, the specific hashtags (i.e. strings of letters) are:
+
+BLM: BlackLivesMatter, BLM, racism, Racism, George, ICantBreathe, Floyd
+HK: HK, HongKong, hk
+US: US, America, UnitedStates, Washington 
+Other: DoubleStandard, doublestandard
+
+Under each umbrella, for the tweets written in Chinese and translated to English, the specific hashtags (i.e. strings of letters) are:
+
+BLM: BlackLivesMatter, George, Floyd
+HK: HK, HongKong
+US: US, America, UnitedStates, Washington 
+
+```{r}
+## filter for hashtags (english)
+x <- list(c("US", "America", "UnitedStates", "Washington"), c("HongKong", "HK", "hk"), c("racism", "George", "BlackLivesMatter", "BLM", "Racism", "Floyd", "ICantBreathe"), c("DoubleStandard", "doublestandard"))
+start <- anti_join(english, filtered_english)
+# (US and BLM)
+a <- start %>% filter((grepl(x[[1]][1], hashtags) & grepl(x[[3]][1], hashtags)))
+b <- anti_join(start, a) %>% filter((grepl(x[[1]][1], hashtags) & grepl(x[[3]][2], hashtags)))
+c <- anti_join(start, b) %>% filter((grepl(x[[1]][1], hashtags) & grepl(x[[3]][3], hashtags)))
+d <- anti_join(start, c) %>% filter((grepl(x[[1]][1], hashtags) & grepl(x[[3]][4], hashtags)))
+e <- anti_join(start, d) %>% filter((grepl(x[[1]][1], hashtags) & grepl(x[[3]][5], hashtags)))
+f <- anti_join(start, e) %>% filter((grepl(x[[1]][1], hashtags) & grepl(x[[3]][6], hashtags)))
+g <- anti_join(start, f) %>% filter((grepl(x[[1]][1], hashtags) & grepl(x[[3]][7], hashtags)))
+h <- anti_join(start, g) %>% filter((grepl(x[[1]][2], hashtags) & grepl(x[[3]][1], hashtags)))
+i <- anti_join(start, h) %>% filter((grepl(x[[1]][2], hashtags) & grepl(x[[3]][2], hashtags)))
+j <- anti_join(start, i) %>% filter((grepl(x[[1]][2], hashtags) & grepl(x[[3]][3], hashtags)))
+k <- anti_join(start, j) %>% filter((grepl(x[[1]][2], hashtags) & grepl(x[[3]][4], hashtags)))
+l <- anti_join(start, k) %>% filter((grepl(x[[1]][2], hashtags) & grepl(x[[3]][5], hashtags)))
+m <- anti_join(start, l) %>% filter((grepl(x[[1]][2], hashtags) & grepl(x[[3]][6], hashtags)))
+n <- anti_join(start, m) %>% filter((grepl(x[[1]][2], hashtags) & grepl(x[[3]][7], hashtags)))
+o <- anti_join(start, n) %>% filter((grepl(x[[1]][3], hashtags) & grepl(x[[3]][1], hashtags)))
+p <- anti_join(start, o) %>% filter((grepl(x[[1]][3], hashtags) & grepl(x[[3]][2], hashtags)))
+q <- anti_join(start, p) %>% filter((grepl(x[[1]][3], hashtags) & grepl(x[[3]][3], hashtags)))
+r <- anti_join(start, q) %>% filter((grepl(x[[1]][3], hashtags) & grepl(x[[3]][4], hashtags)))
+s <- anti_join(start, r) %>% filter((grepl(x[[1]][3], hashtags) & grepl(x[[3]][5], hashtags)))
+t <- anti_join(start, s) %>% filter((grepl(x[[1]][3], hashtags) & grepl(x[[3]][6], hashtags)))
+u <- anti_join(start, t) %>% filter((grepl(x[[1]][3], hashtags) & grepl(x[[3]][7], hashtags)))
+v <- anti_join(start, u) %>% filter((grepl(x[[1]][4], hashtags) & grepl(x[[3]][1], hashtags)))
+w <- anti_join(start, v) %>% filter((grepl(x[[1]][4], hashtags) & grepl(x[[3]][2], hashtags)))
+y <- anti_join(start, w) %>% filter((grepl(x[[1]][4], hashtags) & grepl(x[[3]][3], hashtags)))
+z <- anti_join(start, y) %>% filter((grepl(x[[1]][4], hashtags) & grepl(x[[3]][4], hashtags)))
+aa <- anti_join(start, z) %>% filter((grepl(x[[1]][4], hashtags) & grepl(x[[3]][5], hashtags)))
+bb <- anti_join(start, aa) %>% filter((grepl(x[[1]][4], hashtags) & grepl(x[[3]][6], hashtags)))
+cc <- anti_join(start, bb) %>% filter((grepl(x[[1]][4], hashtags) & grepl(x[[3]][7], hashtags)))
+filtered_english1 <- rbind(a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,y,z,aa,bb,cc)
+# (HK and BLM)
+a <- start %>% filter((grepl(x[[2]][1], hashtags) & grepl(x[[3]][1], hashtags)))
+b <- anti_join(start, a) %>% filter((grepl(x[[2]][1], hashtags) & grepl(x[[3]][2], hashtags)))
+c <- anti_join(start, b) %>% filter((grepl(x[[2]][1], hashtags) & grepl(x[[3]][3], hashtags)))
+d <- anti_join(start, c) %>% filter((grepl(x[[2]][1], hashtags) & grepl(x[[3]][4], hashtags)))
+e <- anti_join(start, d) %>% filter((grepl(x[[2]][1], hashtags) & grepl(x[[3]][5], hashtags)))
+f <- anti_join(start, e) %>% filter((grepl(x[[2]][1], hashtags) & grepl(x[[3]][6], hashtags)))
+g <- anti_join(start, f) %>% filter((grepl(x[[2]][1], hashtags) & grepl(x[[3]][7], hashtags)))
+h <- anti_join(start, g) %>% filter((grepl(x[[2]][2], hashtags) & grepl(x[[3]][1], hashtags)))
+i <- anti_join(start, h) %>% filter((grepl(x[[2]][2], hashtags) & grepl(x[[3]][2], hashtags)))
+j <- anti_join(start, i) %>% filter((grepl(x[[2]][2], hashtags) & grepl(x[[3]][3], hashtags)))
+k <- anti_join(start, j) %>% filter((grepl(x[[2]][2], hashtags) & grepl(x[[3]][4], hashtags)))
+l <- anti_join(start, k) %>% filter((grepl(x[[2]][2], hashtags) & grepl(x[[3]][5], hashtags)))
+m <- anti_join(start, l) %>% filter((grepl(x[[2]][2], hashtags) & grepl(x[[3]][6], hashtags)))
+n <- anti_join(start, m) %>% filter((grepl(x[[2]][2], hashtags) & grepl(x[[3]][7], hashtags)))
+o <- anti_join(start, n) %>% filter((grepl(x[[2]][3], hashtags) & grepl(x[[3]][1], hashtags)))
+p <- anti_join(start, o) %>% filter((grepl(x[[2]][3], hashtags) & grepl(x[[3]][2], hashtags)))
+q <- anti_join(start, p) %>% filter((grepl(x[[2]][3], hashtags) & grepl(x[[3]][3], hashtags)))
+r <- anti_join(start, q) %>% filter((grepl(x[[2]][3], hashtags) & grepl(x[[3]][4], hashtags)))
+s <- anti_join(start, r) %>% filter((grepl(x[[2]][3], hashtags) & grepl(x[[3]][5], hashtags)))
+t <- anti_join(start, s) %>% filter((grepl(x[[2]][3], hashtags) & grepl(x[[3]][6], hashtags)))
+u <- anti_join(start, t) %>% filter((grepl(x[[2]][3], hashtags) & grepl(x[[3]][7], hashtags)))
+filtered_english2 <- rbind(a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u)
+# (US and Other)
+a <- start %>% filter((grepl(x[[1]][1], hashtags) & grepl(x[[4]][1], hashtags)))
+b <- anti_join(start, a) %>% filter((grepl(x[[1]][1], hashtags) & grepl(x[[4]][2], hashtags)))
+c <- anti_join(start, b) %>% filter((grepl(x[[1]][2], hashtags) & grepl(x[[4]][1], hashtags)))
+d <- anti_join(start, c) %>% filter((grepl(x[[1]][2], hashtags) & grepl(x[[4]][2], hashtags)))
+e <- anti_join(start, d) %>% filter((grepl(x[[1]][3], hashtags) & grepl(x[[4]][1], hashtags)))
+f <- anti_join(start, e) %>% filter((grepl(x[[1]][3], hashtags) & grepl(x[[4]][2], hashtags)))
+g <- anti_join(start, f) %>% filter((grepl(x[[1]][4], hashtags) & grepl(x[[4]][1], hashtags)))
+h <- anti_join(start, g) %>% filter((grepl(x[[1]][4], hashtags) & grepl(x[[4]][2], hashtags)))
+filtered_english3 <- rbind(a,b,c,d,e,f,g,h)
+# (HK and Other)
+a <- start %>% filter((grepl(x[[2]][1], hashtags) & grepl(x[[4]][1], hashtags)))
+b <- anti_join(start, a) %>% filter((grepl(x[[2]][1], hashtags) & grepl(x[[4]][2], hashtags)))
+c <- anti_join(start, b) %>% filter((grepl(x[[2]][2], hashtags) & grepl(x[[4]][1], hashtags)))
+d <- anti_join(start, c) %>% filter((grepl(x[[2]][2], hashtags) & grepl(x[[4]][2], hashtags)))
+e <- anti_join(start, d) %>% filter((grepl(x[[2]][3], hashtags) & grepl(x[[4]][1], hashtags)))
+f <- anti_join(start, e) %>% filter((grepl(x[[2]][3], hashtags) & grepl(x[[4]][2], hashtags)))
+filtered_english4 <- rbind(a,b,c,d,e,f)
+# (BLM and Other)
+a <- start %>% filter((grepl(x[[1]][1], hashtags) & grepl(x[[4]][1], hashtags)))
+b <- anti_join(start, a) %>% filter((grepl(x[[1]][1], hashtags) & grepl(x[[4]][2], hashtags)))
+c <- anti_join(start, b) %>% filter((grepl(x[[1]][2], hashtags) & grepl(x[[4]][1], hashtags)))
+d <- anti_join(start, c) %>% filter((grepl(x[[1]][2], hashtags) & grepl(x[[4]][2], hashtags)))
+e <- anti_join(start, d) %>% filter((grepl(x[[1]][3], hashtags) & grepl(x[[4]][1], hashtags)))
+f <- anti_join(start, e) %>% filter((grepl(x[[1]][3], hashtags) & grepl(x[[4]][2], hashtags)))
+g <- anti_join(start, f) %>% filter((grepl(x[[1]][4], hashtags) & grepl(x[[4]][1], hashtags)))
+h <- anti_join(start, g) %>% filter((grepl(x[[1]][4], hashtags) & grepl(x[[4]][2], hashtags)))
+i <- anti_join(start, h) %>% filter((grepl(x[[1]][5], hashtags) & grepl(x[[4]][1], hashtags)))
+j <- anti_join(start, i) %>% filter((grepl(x[[1]][5], hashtags) & grepl(x[[4]][2], hashtags)))
+k <- anti_join(start, j) %>% filter((grepl(x[[1]][6], hashtags) & grepl(x[[4]][1], hashtags)))
+l <- anti_join(start, k) %>% filter((grepl(x[[1]][6], hashtags) & grepl(x[[4]][2], hashtags)))
+m <- anti_join(start, l) %>% filter((grepl(x[[1]][7], hashtags) & grepl(x[[4]][1], hashtags)))
+n <- anti_join(start, m) %>% filter((grepl(x[[1]][7], hashtags) & grepl(x[[4]][2], hashtags)))
+filtered_english5 <- rbind(a,b,c,d,e,f,g,h,i,j,k,l,m,n)
+# BLM
+a <- start %>% filter(grepl(x[[3]][1], hashtags))
+b <- anti_join(start, a) %>% filter(grepl(x[[3]][2], hashtags))
+c <- anti_join(start, b) %>% filter(grepl(x[[3]][3], hashtags))
+d <- anti_join(start, c) %>% filter(grepl(x[[3]][4], hashtags))
+e <- anti_join(start, d) %>% filter(grepl(x[[3]][5], hashtags))
+f <- anti_join(start, e) %>% filter(grepl(x[[3]][6], hashtags))
+g <- anti_join(start, f) %>% filter(grepl(x[[3]][7], hashtags))
+filtered_english6 <- rbind(a,b,c,d,e,f,g)
+filtered_english <- rbind(filtered_english, filtered_english1, filtered_english2, filtered_english3, filtered_english4, filtered_english5, filtered_english6)
+
+## filter for hashtags (chinese)
+x <- list(c("US", "America", "UnitedStates", "Washington"), c("HongKong", "HK"), c("George", "BlackLivesMatter","Floyd"))
+start <- anti_join(chinese_en, filtered_chinese)
+# (US and BLM)
+a <- start %>% filter((grepl(x[[1]][1], hashtags_en) & grepl(x[[3]][1], hashtags_en)))
+b <- anti_join(start, a) %>% filter((grepl(x[[1]][1], hashtags_en) & grepl(x[[3]][2], hashtags_en)))
+c <- anti_join(start, b) %>% filter((grepl(x[[1]][1], hashtags_en) & grepl(x[[3]][3], hashtags_en)))
+d <- anti_join(start, c) %>% filter((grepl(x[[1]][2], hashtags_en) & grepl(x[[3]][1], hashtags_en)))
+e <- anti_join(start, d) %>% filter((grepl(x[[1]][2], hashtags_en) & grepl(x[[3]][2], hashtags_en)))
+f <- anti_join(start, e) %>% filter((grepl(x[[1]][2], hashtags_en) & grepl(x[[3]][3], hashtags_en)))
+g <- anti_join(start, f) %>% filter((grepl(x[[1]][3], hashtags_en) & grepl(x[[3]][1], hashtags_en)))
+h <- anti_join(start, g) %>% filter((grepl(x[[1]][3], hashtags_en) & grepl(x[[3]][2], hashtags_en)))
+i <- anti_join(start, h) %>% filter((grepl(x[[1]][3], hashtags_en) & grepl(x[[3]][3], hashtags_en)))
+j <- anti_join(start, i) %>% filter((grepl(x[[1]][4], hashtags_en) & grepl(x[[3]][1], hashtags_en)))
+k <- anti_join(start, j) %>% filter((grepl(x[[1]][4], hashtags_en) & grepl(x[[3]][2], hashtags_en)))
+l <- anti_join(start, k) %>% filter((grepl(x[[1]][4], hashtags_en) & grepl(x[[3]][3], hashtags_en)))
+filtered_chinese1 <- rbind(a,b,c,d,e,f,g,h,i,j,k,l)
+# (HK and BLM)
+a <- start %>% filter((grepl(x[[2]][1], hashtags_en) & grepl(x[[3]][1], hashtags_en)))
+b <- anti_join(start, a) %>% filter((grepl(x[[2]][1], hashtags_en) & grepl(x[[3]][2], hashtags_en)))
+c <- anti_join(start, b) %>% filter((grepl(x[[2]][1], hashtags_en) & grepl(x[[3]][3], hashtags_en)))
+d <- anti_join(start, c) %>% filter((grepl(x[[2]][2], hashtags_en) & grepl(x[[3]][1], hashtags_en)))
+e <- anti_join(start, d) %>% filter((grepl(x[[2]][2], hashtags_en) & grepl(x[[3]][2], hashtags_en)))
+f <- anti_join(start, e) %>% filter((grepl(x[[2]][2], hashtags_en) & grepl(x[[3]][3], hashtags_en)))
+filtered_chinese2 <- rbind(a,b,c,d,e,f)
+# BLM
+a <- start %>% filter(grepl(x[[3]][1], hashtags_en))
+b <- anti_join(start, a) %>% filter(grepl(x[[3]][2], hashtags_en))
+c <- anti_join(start, b) %>% filter(grepl(x[[3]][3], hashtags_en))
+filtered_chinese3 <- rbind(a,b,c)
+filtered_chinese <- rbind(filtered_chinese, filtered_chinese1, filtered_chinese2, filtered_chinese3)
+```
+
+```{r}
+df <- rbind(filtered_chinese, filtered_english)
+status_id <- gsub("x","",df$status_id)
+df$status_id <- NULL
+df <- cbind(status_id, df)
+df$status_id <- as.character(df$status_id)
+user_id <- gsub("x","",df$user_id)
+df$user_id <- NULL
+df <- cbind(user_id, df)
+df$user_id <- as.character(df$user_id)
+
+df.en <- df %>% filter(lang == "en")
+df.en$text_en <- NULL
+df.en2 <- df %>% filter(lang == "en") %>% dplyr::select(text) %>% rename(text_en = text)
+df.en <- cbind(df.en, df.en2)
+df.en$hashtags_en <- NULL
+df.en2 <- df %>% filter(lang == "en") %>% dplyr::select(hashtags) %>% rename(hashtags_en = hashtags)
+df.en <- cbind(df.en, df.en2)
+df.zh <- df %>% filter(lang == "zh")
+df <- rbind(df.en, df.zh)
+
+write_as_csv(df, "Core_tweets.csv")
+```
+
+Once the tweets are filtered down to only the ones of interest, I will find all the user_ids/handles that retweeted those tweets.
+
+
+```{r}
+core <- read_csv("Core_tweets.csv")
+x <- unique(core$screen_name)
+x <- paste0("@",x)
+x <- as.data.frame(x) %>% rename(Handle = "x")
+write_as_csv(x, "Filtered_Accounts.csv")
+```
+
+

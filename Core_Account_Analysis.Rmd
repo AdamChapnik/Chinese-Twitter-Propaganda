@@ -1,0 +1,424 @@
+---
+title: "Core_Account_Analysis"
+author: "Adam Chapnik"
+date: "12/4/2020"
+output: html_document
+---
+
+```{r}
+library(rtweet)
+library(dplyr)
+library(tidyr)
+library(tidytext)
+library(ggplot2)
+library(textdata)
+
+core <- readr::read_csv("Core_tweets.csv")
+```
+
+I will now analyze the levels of coordination of the core accounts on one hand. These will also be divided by tweet topic. Splitting up the dataset will help to understand the relationship between accounts we know "on the ground" belong to the CCP versus accounts for which the ownership is unknown. Furthermore, it will allow us to eventually create a list of known CCP accounts, suspected CCP accounts, and likely civilian accounts, a categorization which will aid in evaluating the success of this particular propaganda campaign. 
+
+# Sentiment Analysis
+
+I will separate this into the tweets written in English versus Chinese, and it will apply only to the core tweets.
+
+```{r}
+## Since March 31, 2019 ##
+## Chinese tweets
+zh <- core %>% filter(lang == "zh")
+# remove http elements
+zh$stripped.text <- gsub("http\\S+", "", zh$text_en)
+# convert to lowercase, remove punctuation
+stem_zh <- zh %>% dplyr::select(stripped.text) %>% unnest_tokens(word, stripped.text)
+# remove stop words
+cleaned_zh <- stem_zh %>% anti_join(stop_words)
+# remove keywords
+keywords <- as.data.frame(as.matrix(c("hong", "kong", "united", "states", "china", "u.s.", "racism", "chinese", "u.s", "american", "trump", "georgefloyd", "george", "black", "floyd", "hongkong", "hksar", "amp", "china's"))) %>% dplyr::rename(word = V1)
+cleaned_zh <- cleaned_zh %>% anti_join(keywords)
+
+## English tweets
+en <- core %>% filter(lang == "en")
+# remove http elements
+en$stripped.text <- gsub("http\\S+", "", en$text_en)
+# convert to lowercase, remove punctuation
+stem_en <- en %>% dplyr::select(stripped.text) %>% unnest_tokens(word, stripped.text)
+# remove stop words
+cleaned_en <- stem_en %>% anti_join(stop_words)
+# remove keywords
+keywords <- as.data.frame(as.matrix(c("hong", "kong", "united", "states", "china", "u.s.", "racism", "chinese", "u.s", "american", "trump", "georgefloyd", "george", "black", "floyd", "hongkong", "hksar", "amp", "china's"))) %>% dplyr::rename(word = V1)
+cleaned_en <- cleaned_en %>% anti_join(keywords)
+```
+
+```{r}
+## Before May, 25, 2020 ##
+## Chinese tweets
+zh <- core %>% filter(lang == "zh") %>% filter(created_at < "2020-05-25 00:00:01 UTC")
+# remove http elements
+zh$stripped.text <- gsub("http\\S+", "", zh$text_en)
+# convert to lowercase, remove punctuation
+stem_zh <- zh %>% dplyr::select(stripped.text) %>% unnest_tokens(word, stripped.text)
+# remove stop words
+cleaned_zh.pre <- stem_zh %>% anti_join(stop_words)
+# remove keywords
+keywords <- as.data.frame(as.matrix(c("hong", "kong", "united", "states", "china", "u.s.", "racism", "chinese", "u.s", "american", "trump", "georgefloyd", "george", "black", "floyd", "hongkong", "hksar", "amp", "china's"))) %>% dplyr::rename(word = V1)
+cleaned_zh.pre <- cleaned_zh.pre %>% anti_join(keywords)
+
+## English tweets
+en <- core %>% filter(lang == "en") %>% filter(created_at < "2020-05-25 00:00:01 UTC")
+# remove http elements
+en$stripped.text <- gsub("http\\S+", "", en$text_en)
+# convert to lowercase, remove punctuation
+stem_en <- en %>% dplyr::select(stripped.text) %>% unnest_tokens(word, stripped.text)
+# remove stop words
+cleaned_en.pre <- stem_en %>% anti_join(stop_words)
+# remove keywords
+keywords <- as.data.frame(as.matrix(c("hong", "kong", "united", "states", "china", "u.s.", "racism", "chinese", "u.s", "american", "trump", "georgefloyd", "george", "black", "floyd", "hongkong", "hksar", "amp", "china's"))) %>% dplyr::rename(word = V1)
+cleaned_en.pre <- cleaned_en.pre %>% anti_join(keywords)
+```
+
+```{r}
+## After May, 25, 2020 ##
+## Chinese tweets
+zh <- core %>% filter(lang == "zh") %>% filter(created_at >= "2020-05-25 00:00:01 UTC")
+# remove http elements
+zh$stripped.text <- gsub("http\\S+", "", zh$text_en)
+# convert to lowercase, remove punctuation
+stem_zh <- zh %>% dplyr::select(stripped.text) %>% unnest_tokens(word, stripped.text)
+# remove stop words
+cleaned_zh.post <- stem_zh %>% anti_join(stop_words)
+# remove keywords
+keywords <- as.data.frame(as.matrix(c("hong", "kong", "united", "states", "china", "u.s.", "racism", "chinese", "u.s", "american", "trump", "georgefloyd", "george", "black", "floyd", "hongkong", "hksar", "amp", "china's"))) %>% dplyr::rename(word = V1)
+cleaned_zh.post <- cleaned_zh.post %>% anti_join(keywords)
+
+## English tweets
+en <- core %>% filter(lang == "en") %>% filter(created_at >= "2020-05-25 00:00:01 UTC")
+# remove http elements
+en$stripped.text <- gsub("http\\S+", "", en$text_en)
+# convert to lowercase, remove punctuation
+stem_en <- en %>% dplyr::select(stripped.text) %>% unnest_tokens(word, stripped.text)
+# remove stop words
+cleaned_en.post <- stem_en %>% anti_join(stop_words)
+# remove keywords
+keywords <- as.data.frame(as.matrix(c("hong", "kong", "united", "states", "china", "u.s.", "racism", "chinese", "u.s", "american", "trump", "georgefloyd", "george", "black", "floyd", "hongkong", "hksar", "amp", "china's"))) %>% dplyr::rename(word = V1)
+cleaned_en.post <- cleaned_en.post %>% anti_join(keywords)
+```
+
+
+```{r}
+# top 10 words
+cleaned_zh %>% count(word, sort = T) %>% top_n(10) %>% mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Words", title = "Unique word counts found in Chinese language tweets since March 31, 2019")
+
+cleaned_en %>% count(word, sort = T) %>% top_n(10) %>% mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Words", title = "Unique word counts found in English language tweets since March 31, 2019")
+
+cleaned_zh.pre %>% count(word, sort = T) %>% top_n(10) %>% mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Words", title = "Unique word counts found in Chinese language tweets between March 31, 2019 and May, 25, 2020")
+
+cleaned_en.pre %>% count(word, sort = T) %>% top_n(10) %>% mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Words", title = "Unique word counts found in English language tweets between March 31, 2019 and May, 25, 2020")
+
+cleaned_zh.post %>% count(word, sort = T) %>% top_n(10) %>% mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Words", title = "Unique word counts found in Chinese language tweets since May 25, 2020")
+
+cleaned_en.post %>% count(word, sort = T) %>% top_n(10) %>% mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Words", title = "Unique word counts found in English language tweets since May 25, 2020")
+```
+
+
+```{r}
+# sentiment analysis with bing
+## Since March 31, 2019 ##
+## Chinese
+bing.text_zh <- cleaned_zh %>% inner_join(get_sentiments("bing")) %>% count(word, sentiment, sort = T) %>% ungroup()
+
+bing.text_zh %>% group_by(sentiment) %>% top_n(10) %>% ungroup() %>% 
+  mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(word, n, fill = sentiment)) + geom_col(show.legend = F) +
+  facet_wrap(~ sentiment, scales = "free_y") +
+  labs(title = "Chinese language tweets since March 31, 2019", y = "Contribution to sentiment", x = NULL) + coord_flip() + theme_bw()
+
+## English
+bing.text_en <- cleaned_en %>% inner_join(get_sentiments("bing")) %>% count(word, sentiment, sort = T) %>% ungroup()
+
+bing.text_en %>% group_by(sentiment) %>% top_n(10) %>% ungroup() %>% 
+  mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(word, n, fill = sentiment)) + geom_col(show.legend = F) +
+  facet_wrap(~ sentiment, scales = "free_y") +
+  labs(title = "English language tweets since March 31, 2019", y = "Contribution to sentiment", x = NULL) + coord_flip() + theme_bw()
+
+## Before May 25, 2020 ##
+## Chinese
+bing.text_zh.pre <- cleaned_zh.pre %>% inner_join(get_sentiments("bing")) %>% count(word, sentiment, sort = T) %>% ungroup()
+
+bing.text_zh.pre %>% group_by(sentiment) %>% top_n(10) %>% ungroup() %>% 
+  mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(word, n, fill = sentiment)) + geom_col(show.legend = F) +
+  facet_wrap(~ sentiment, scales = "free_y") +
+  labs(title = "Chinese language tweets between March 31, 2019 and May 25, 2020", y = "Contribution to sentiment", x = NULL) + coord_flip() + theme_bw()
+
+## English
+bing.text_en.pre <- cleaned_en.pre %>% inner_join(get_sentiments("bing")) %>% count(word, sentiment, sort = T) %>% ungroup()
+
+bing.text_en.pre %>% group_by(sentiment) %>% top_n(10) %>% ungroup() %>% 
+  mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(word, n, fill = sentiment)) + geom_col(show.legend = F) +
+  facet_wrap(~ sentiment, scales = "free_y") +
+  labs(title = "English language tweets between March 31, 2019 and May 25, 2020", y = "Contribution to sentiment", x = NULL) + coord_flip() + theme_bw()
+
+## Since May 25, 2020 ##
+## Chinese
+bing.text_zh.post <- cleaned_zh.post %>% inner_join(get_sentiments("bing")) %>% count(word, sentiment, sort = T) %>% ungroup()
+
+bing.text_zh.post %>% group_by(sentiment) %>% top_n(10) %>% ungroup() %>% 
+  mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(word, n, fill = sentiment)) + geom_col(show.legend = F) +
+  facet_wrap(~ sentiment, scales = "free_y") +
+  labs(title = "Chinese language tweets since May 25, 2020", y = "Contribution to sentiment", x = NULL) + coord_flip() + theme_bw()
+
+## English
+bing.text_en.post <- cleaned_en.post %>% inner_join(get_sentiments("bing")) %>% count(word, sentiment, sort = T) %>% ungroup()
+
+bing.text_en.post %>% group_by(sentiment) %>% top_n(10) %>% ungroup() %>% 
+  mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(word, n, fill = sentiment)) + geom_col(show.legend = F) +
+  facet_wrap(~ sentiment, scales = "free_y") +
+  labs(title = "English language tweets since May 25, 2020", y = "Contribution to sentiment", x = NULL) + coord_flip() + theme_bw()
+```
+
+```{r}
+# sentiment score for each tweet
+sentiment_bing <- function(twt){
+  # basic text cleaning on tweet
+  twt_tbl = tibble(text = twt) %>%
+    mutate(
+      # remove http elements
+      stripped = gsub("http\\S+", "", text)
+    ) %>%
+    unnest_tokens(word, stripped) %>%
+    anti_join(rbind(stop_words[,1], keywords)) %>% # remove stop words and keywords
+    inner_join(get_sentiments("bing")) %>% # merge w bing sentiment
+    count(word, sentiment, sort = T) %>%
+    ungroup() %>%
+    # create column "score" that assigns -1 to all neg words and +1 to all pos words
+    mutate(
+      score = case_when(
+        sentiment == "positive" ~ n*(-1),
+        sentiment == "negative" ~ n*1)
+      )
+  # calculate total score
+  sent.score = case_when(
+    nrow(twt_tbl) == 0 ~ 0, # if there are no words, score = 0
+    nrow(twt_tbl) > 0 ~ sum(twt_tbl$score) # o.w., sum scores
+  )
+  # track tweets with no words from bing list
+  zero.type = case_when(
+    nrow(twt_tbl) == 0 ~ "Type 1", # no words match at all
+    nrow(twt_tbl) > 0 ~ "Type 2" # sum of words = 0
+  )
+  
+  list(score = sent.score, type = zero.type, twt_tbl = twt_tbl)
+}
+
+zh.sent <- lapply(zh$text_en, sentiment_bing)
+en.sent <- lapply(en$text_en, sentiment_bing)
+```
+
+
+```{r}
+core.sent <- bind_rows(
+  tibble(
+    language = "Chinese",
+    score = unlist(purrr::map(zh.sent, "score")),
+    type = unlist(purrr::map(zh.sent, "type"))
+  ),
+  tibble(
+    language = "English",
+    score = unlist(purrr::map(en.sent, "score")),
+    type = unlist(purrr::map(en.sent, "type"))
+  )
+)
+
+# add date of tweet
+zh <- core %>% filter(lang == "zh")
+en <- core %>% filter(lang == "en")
+x <- gsub("\\s","x", zh$created_at)
+x <- gsub(":","x",x)
+x <- gsub("x..","",x)
+date_zh <- gsub("x","",x)
+x <- gsub("\\s","x", en$created_at)
+x <- gsub(":","x",x)
+x <- gsub("x..","",x)
+date_en <- gsub("x","",x)
+date <- c(date_zh, date_en)
+core.sent <- cbind(core.sent, date)
+core.sent$date <- as.Date(core.sent$date)
+```
+
+```{r}
+# add time of tweet
+time_zh <- gsub("....-..-..\\s","2020-12-14 ", zh$created_at)
+time_en <- gsub("....-..-..\\s","2020-12-14 ", en$created_at)
+time <- c(time_zh, time_en)
+core.sent <- cbind(core.sent, time)
+core.sent$time <- as.POSIXct(core.sent$time)
+# add reply_to_screen_name
+reply_to <- c(zh$reply_to_screen_name, en$reply_to_screen_name)
+core.sent <- cbind(core.sent, reply_to)
+# add mentions
+mentions <- c(zh$mentions_screen_name, en$mentions_screen_name)
+core.sent <- cbind(core.sent, mentions)
+# add hashtags_en
+hashtags <- c(zh$hashtags_en, en$hashtags_en)
+core.sent <- cbind(core.sent, hashtags)
+# add quoted_screen_name
+quoted_screen_name <- c(zh$quoted_screen_name, en$quoted_screen_name)
+core.sent <- cbind(core.sent, quoted_screen_name)
+# add favorites
+favorites <- c(zh$favorite_count, en$favorite_count)
+core.sent <- cbind(core.sent, favorites)
+# add followers
+followers <- c(zh$followers_count, en$followers_count)
+core.sent <- cbind(core.sent, followers)
+# add friends
+friends <- c(zh$friends_count, en$friends_count)
+core.sent <- cbind(core.sent, friends)
+# add retweets
+retweet_count <- c(zh$retweet_count, en$retweet_count)
+core.sent <- cbind(core.sent, retweet_count)
+```
+
+```{r}
+core.sent %>% ggplot(aes(x = score, fill = language)) +
+  geom_histogram(bins = 30) + facet_grid(~ language) + theme_bw() +
+  labs(title = "Sentiment scores of tweets by language since March 31, 2019", y = "Number of tweets", x = "Sentiment")
+
+core.sent %>% filter(date < "2020-05-25") %>% ggplot(aes(x = score, fill = language)) +
+  geom_histogram(bins = 20) + facet_grid(~ language) + theme_bw() +
+  labs(title = "Sentiment scores of tweets by language between March 31, 2019 and May 25, 2020", y = "Number of tweets", x = "Sentiment")
+
+core.sent %>% filter(date >= "2020-05-25") %>% ggplot(aes(x = score, fill = language)) +
+  geom_histogram(bins = 30) + facet_grid(~ language) + theme_bw() +
+  labs(title = "Sentiment scores of tweets by language since May 25, 2020", y = "Number of tweets", x = "Sentiment")
+```
+
+```{r}
+core.sent %>% ggplot(aes(x = date, fill = language)) +
+  geom_histogram(bins = 30) + facet_grid(~ language) + theme_bw() +
+  labs(title = "Number of tweets per day by language since March 31, 2019", y = "Number of tweets", x = "Date")
+
+core.sent %>% ggplot(aes(x = date)) + geom_histogram(bins = 50) + theme_bw() +
+  labs(title = "Tweets per day since March 31, 2019", y = "Number of tweets", x = "Date")
+
+core.sent %>% ggplot(aes(x = time, fill = language)) + geom_histogram(bins = 30) + facet_grid(~ language) + theme_bw() +
+  labs(title = "Tweet timing since March 31, 2019", y = "Number of tweets", x = "Time")
+```
+
+
+```{r}
+core.sent %>% ggplot(aes(x = followers, y = favorites)) + geom_point()
+
+core.sent %>% ggplot(aes(x = followers, y = retweet_count)) + geom_point()
+
+core.sent %>% ggplot(aes(x = followers, y = friends)) + geom_point() # the top right is @zlj517, bottom left is @XHNews
+
+core.sent %>% ggplot(aes(x = score, y = favorites)) + geom_point()
+```
+
+
+```{r}
+core.sent[!is.na(core.sent$reply_to),] %>% filter(language == "Chinese") %>% select(reply_to) %>% count(reply_to, sort = T) %>% top_n(10) %>% mutate(reply_to = reorder(reply_to, n)) %>%
+  ggplot(aes(x = reply_to, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Receivers", title = "Unique reply receiver counts found in Chinese language tweets since March 31, 2019")
+
+core.sent[!is.na(core.sent$reply_to),] %>% filter(language == "Chinese") %>% filter(date >= "2020-05-25") %>% select(reply_to) %>% count(reply_to, sort = T) %>% top_n(10) %>% mutate(reply_to = reorder(reply_to, n)) %>%
+  ggplot(aes(x = reply_to, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Receivers", title = "Unique reply receiver counts found in Chinese language tweets since May 25, 2020")
+
+core.sent[!is.na(core.sent$reply_to),] %>% filter(language == "Chinese") %>% filter(date <= "2020-05-25") %>% select(reply_to) %>% count(reply_to, sort = T) %>% top_n(10) %>% mutate(reply_to = reorder(reply_to, n)) %>%
+  ggplot(aes(x = reply_to, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Receivers", title = "Unique reply receiver counts found in Chinese language tweets between March 31, 2019 and May 25, 2020")
+```
+
+```{r}
+core.sent[!is.na(core.sent$reply_to),] %>% filter(language == "English") %>% select(reply_to) %>% count(reply_to, sort = T) %>% top_n(10) %>% mutate(reply_to = reorder(reply_to, n)) %>%
+  ggplot(aes(x = reply_to, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Receivers", title = "Unique reply receiver counts found in English language tweets since March 31, 2019")
+
+core.sent[!is.na(core.sent$reply_to),] %>% filter(language == "English") %>% filter(date >= "2020-05-25") %>% select(reply_to) %>% count(reply_to, sort = T) %>% top_n(10) %>% mutate(reply_to = reorder(reply_to, n)) %>%
+  ggplot(aes(x = reply_to, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Receivers", title = "Unique reply receiver counts found in English language tweets since May 25, 2020")
+
+core.sent[!is.na(core.sent$reply_to),] %>% filter(language == "English") %>% filter(date <= "2020-05-25") %>% select(reply_to) %>% count(reply_to, sort = T) %>% top_n(10) %>% mutate(reply_to = reorder(reply_to, n)) %>%
+  ggplot(aes(x = reply_to, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Receivers", title = "Unique reply receiver counts found in English language tweets between March 31, 2019 and May 25, 2020")
+```
+
+```{r}
+core.sent[!is.na(core.sent$mentions),] %>% filter(language == "Chinese") %>% select(mentions) %>% count(mentions, sort = T) %>% top_n(10) %>% mutate(mentions = reorder(mentions, n)) %>%
+  ggplot(aes(x = mentions, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Mentions", title = "Unique mention counts found in Chinese language tweets since March 31, 2019")
+
+core.sent[!is.na(core.sent$mentions),] %>% filter(language == "Chinese") %>% filter(date >= "2020-05-25") %>% select(mentions) %>% count(mentions, sort = T) %>% top_n(10) %>% mutate(mentions = reorder(mentions, n)) %>%
+  ggplot(aes(x = mentions, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Mentions", title = "Unique mention counts found in Chinese language tweets since May 25, 2020")
+
+core.sent[!is.na(core.sent$mentions),] %>% filter(language == "Chinese") %>% filter(date <= "2020-05-25") %>% select(mentions) %>% count(mentions, sort = T) %>% top_n(10) %>% mutate(mentions = reorder(mentions, n)) %>%
+  ggplot(aes(x = mentions, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Mentions", title = "Unique mention counts found in Chinese language tweets between March 31, 2019 and May 25, 2020")
+```
+
+
+```{r}
+core.sent[!is.na(core.sent$mentions),] %>% filter(language == "English") %>% select(mentions) %>% count(mentions, sort = T) %>% top_n(10) %>% mutate(mentions = reorder(mentions, n)) %>%
+  ggplot(aes(x = mentions, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Mentions", title = "Unique mention counts found in English language tweets since March 31, 2019")
+
+core.sent[!is.na(core.sent$mentions),] %>% filter(language == "English") %>% filter(date >= "2020-05-25") %>% select(mentions) %>% count(mentions, sort = T) %>% top_n(10) %>% mutate(mentions = reorder(mentions, n)) %>%
+  ggplot(aes(x = mentions, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Mentions", title = "Unique mention counts found in English language tweets since May 25, 2020")
+
+core.sent[!is.na(core.sent$mentions),] %>% filter(language == "English") %>% filter(date <= "2020-05-25") %>% select(mentions) %>% count(mentions, sort = T) %>% top_n(10) %>% mutate(mentions = reorder(mentions, n)) %>%
+  ggplot(aes(x = mentions, y = n)) + geom_col() + 
+  xlab(NULL) + coord_flip() + theme_classic() + 
+  labs(x = "Count", y = "Unique Mentions", title = "Unique mention counts found in English language tweets between March 31, 2019 and May 25, 2020")
+```
+
+```{r}
+core %>% ggplot(aes(x = account_created_at)) + geom_histogram(bins = 30) + theme_bw() +
+  labs(title = "Account creation date", y = "Number of accounts", x = "Date")
+```
+
+```{r}
+core %>% filter(created_at < "2020-05-25 00:00:01 UTC")
+core %>% filter(created_at < "2020-05-25 00:00:01 UTC")
+```
+
+```{r}
+filtered_english2
+filtered_chinese2
+```
+
